@@ -42,6 +42,16 @@ type ContentRow = {
   created_at: string;
 };
 
+type KeywordInsert = Pick<KeywordRow, 'keyword'>;
+
+type WatchAccountInsert = {
+  platform: Platform;
+  account_name: string;
+  account_url: string;
+  status: AccountItem['status'];
+  note: string | null;
+};
+
 type AddKeywordRequest = {
   action: 'add';
   type: 'keyword';
@@ -270,8 +280,12 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ message: '关键词不能为空' }, { status: 400 });
       }
 
-      const keywordInsert = { keyword } as never;
-      const { data, error } = await supabase.from('monitor_keywords').insert(keywordInsert).select('id, keyword, created_at').single();
+      const keywordInsert: KeywordInsert = { keyword };
+      const { data, error } = await supabase
+        .from('monitor_keywords')
+        .insert(keywordInsert as never)
+        .select('id, keyword, created_at')
+        .single();
 
       if (error) {
         throw new Error(error.message);
@@ -289,17 +303,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: '账号链接和账号名不能为空' }, { status: 400 });
     }
 
-    const accountInsert = {
+    const accountInsert: WatchAccountInsert = {
       platform: parsedBody.platform,
       account_name: name,
       account_url: url,
       status: '监控中',
       note: parsedBody.note.trim() || null,
-    } as never;
+    };
 
     const { data, error } = await supabase
       .from('monitored_accounts')
-      .insert(accountInsert)
+      .insert(accountInsert as never)
       .select('id, platform, account_name, account_url, note, status, created_at')
       .single();
 

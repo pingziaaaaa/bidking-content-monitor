@@ -201,10 +201,7 @@ export async function GET() {
       .from('content_items')
       .select('id, platform, title, body, creator_name, url, metric_value, metric_label, source, found_at, created_at')
       .order('found_at', { ascending: false });
-    const keywordsQuery = supabase
-      .from('monitor_keywords')
-      .select('id, keyword, created_at')
-      .order('created_at', { ascending: true });
+    const keywordsQuery = supabase.from('monitor_keywords').select('id, keyword, created_at').order('created_at', { ascending: true });
     const accountsQuery = supabase
       .from('monitored_accounts')
       .select('id, platform, account_name, account_url, note, status, created_at')
@@ -273,7 +270,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ message: '关键词不能为空' }, { status: 400 });
       }
 
-      const { data, error } = await supabase.from('monitor_keywords').insert({ keyword }).select('id, keyword, created_at').single();
+      const keywordInsert = { keyword } as never;
+      const { data, error } = await supabase.from('monitor_keywords').insert(keywordInsert).select('id, keyword, created_at').single();
 
       if (error) {
         throw new Error(error.message);
@@ -291,15 +289,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: '账号链接和账号名不能为空' }, { status: 400 });
     }
 
+    const accountInsert = {
+      platform: parsedBody.platform,
+      account_name: name,
+      account_url: url,
+      status: '监控中',
+      note: parsedBody.note.trim() || null,
+    } as never;
+
     const { data, error } = await supabase
       .from('monitored_accounts')
-      .insert({
-        platform: parsedBody.platform,
-        account_name: name,
-        account_url: url,
-        status: '监控中',
-        note: parsedBody.note.trim() || null,
-      })
+      .insert(accountInsert)
       .select('id, platform, account_name, account_url, note, status, created_at')
       .single();
 

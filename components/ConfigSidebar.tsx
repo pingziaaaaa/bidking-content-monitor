@@ -53,14 +53,7 @@ function AccountRow({ account, onDelete }: { account: AccountItem; onDelete: (ac
   );
 }
 
-export function ConfigSidebar({
-  keywords,
-  accounts,
-  onAddKeyword,
-  onDeleteKeyword,
-  onAddAccount,
-  onDeleteAccount,
-}: ConfigSidebarProps) {
+export function ConfigSidebar({ keywords, accounts, onAddKeyword, onDeleteKeyword, onAddAccount, onDeleteAccount }: ConfigSidebarProps) {
   const [keywordInput, setKeywordInput] = useState('');
   const [accountPlatform, setAccountPlatform] = useState<Platform>('YouTube');
   const [accountUrl, setAccountUrl] = useState('');

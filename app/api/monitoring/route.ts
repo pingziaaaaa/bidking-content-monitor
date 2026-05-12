@@ -183,9 +183,9 @@ export async function GET() {
       throw new Error(contentsResult.error?.message || keywordsResult.error?.message || accountsResult.error?.message || 'Supabase 查询失败');
     }
 
-    const contentRows = rowsFromSupabase(contentsResult.data);
-    const keywordRows = rowsFromSupabase(keywordsResult.data);
-    const accountRows = rowsFromSupabase(accountsResult.data);
+    const contentRows: ContentRow[] = rowsFromSupabase(contentsResult.data);
+    const keywordRows: KeywordRow[] = rowsFromSupabase(keywordsResult.data);
+    const accountRows: WatchAccountRow[] = rowsFromSupabase(accountsResult.data);
 
     return NextResponse.json({
       contents: contentRows.map(mapContentRowToItem),

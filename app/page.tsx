@@ -190,7 +190,14 @@ export default function Home() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ action: 'add', type: 'account', platform: optimisticAccount.platform, url: optimisticAccount.url, name: optimisticAccount.name, note: optimisticAccount.note || '' }),
+        body: JSON.stringify({
+          action: 'add',
+          type: 'account',
+          platform: optimisticAccount.platform,
+          url: optimisticAccount.url,
+          name: optimisticAccount.name,
+          note: optimisticAccount.note || '',
+        }),
       });
 
       if (!response.ok) {

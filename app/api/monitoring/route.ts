@@ -201,7 +201,10 @@ export async function GET() {
       .from('content_items')
       .select('id, platform, title, body, creator_name, url, metric_value, metric_label, source, found_at, created_at')
       .order('found_at', { ascending: false });
-    const keywordsQuery = supabase.from('monitor_keywords').select('id, keyword, created_at').order('created_at', { ascending: true });
+    const keywordsQuery = supabase
+      .from('monitor_keywords')
+      .select('id, keyword, created_at')
+      .order('created_at', { ascending: true });
     const accountsQuery = supabase
       .from('monitored_accounts')
       .select('id, platform, account_name, account_url, note, status, created_at')

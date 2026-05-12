@@ -22,6 +22,7 @@ export type Database = {
           keyword?: string;
           created_at?: string;
         };
+        Relationships: [];
       };
       monitored_accounts: {
         Row: {
@@ -51,6 +52,7 @@ export type Database = {
           status?: AccountItem['status'];
           created_at?: string;
         };
+        Relationships: [];
       };
       content_items: {
         Row: {
@@ -92,6 +94,7 @@ export type Database = {
           found_at?: string;
           created_at?: string;
         };
+        Relationships: [];
       };
     };
     Views: Record<string, never>;
@@ -125,7 +128,10 @@ export function createServerSupabaseClient(): SupabaseClient<Database> | null {
   });
 }
 
-export function mapContentRowToItem(row: Database['public']['Tables']['content_items']['Row']): ContentItem {
+type ContentItemRow = Database['public']['Tables']['content_items']['Row'];
+type MonitoredAccountRow = Database['public']['Tables']['monitored_accounts']['Row'];
+
+export function mapContentRowToItem(row: ContentItemRow): ContentItem {
   const metricLabel = row.metric_label?.toLowerCase() ?? '';
   const metricValue = row.metric_value ?? undefined;
 
@@ -147,7 +153,7 @@ export function mapContentRowToItem(row: Database['public']['Tables']['content_i
   };
 }
 
-export function mapAccountRowToItem(row: Database['public']['Tables']['monitored_accounts']['Row']): AccountItem {
+export function mapAccountRowToItem(row: MonitoredAccountRow): AccountItem {
   return {
     id: row.id,
     platform: row.platform,

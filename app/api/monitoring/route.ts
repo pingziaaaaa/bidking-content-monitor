@@ -67,17 +67,17 @@ type SupabaseSelectBuilder<Row> = {
   single(): Promise<SupabaseSingleResult<Row>>;
 };
 
-type SupabaseTableBuilder<Row> = {
+type SupabaseTableBuilder<Row, Insert> = {
   select(columns: string): SupabaseSelectBuilder<Row>;
-  insert(values: unknown): {
+  insert(values: Insert): {
     select(columns: string): SupabaseSelectBuilder<Row>;
   };
 };
 
 type MonitoringSupabaseClient = {
-  from(table: 'content_items'): SupabaseTableBuilder<ContentRow>;
-  from(table: 'monitor_keywords'): SupabaseTableBuilder<KeywordRow>;
-  from(table: 'monitored_accounts'): SupabaseTableBuilder<WatchAccountRow>;
+  from(table: 'content_items'): SupabaseTableBuilder<ContentRow, never>;
+  from(table: 'monitor_keywords'): SupabaseTableBuilder<KeywordRow, KeywordInsert>;
+  from(table: 'monitored_accounts'): SupabaseTableBuilder<WatchAccountRow, WatchAccountInsert>;
 };
 
 type AddKeywordRequest = {

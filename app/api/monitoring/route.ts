@@ -12,6 +12,74 @@ type MonitoringPayload = {
   message?: string;
 };
 
+type KeywordRow = {
+  id: string;
+  keyword: string;
+  created_at: string;
+};
+
+type WatchAccountRow = {
+  id: string;
+  platform: Platform;
+  name: string;
+  url: string;
+  status: AccountItem['status'];
+  note: string | null;
+  created_at: string;
+};
+
+type ContentRow = {
+  id: string;
+  platform: Platform;
+  title: string;
+  url: string;
+  creator: string;
+  source: (typeof mockContents)[number]['source'];
+  discovered_at: string;
+  views: number | null;
+  impressions: number | null;
+  engagements: number | null;
+  peak_viewers: number | null;
+  vod_views: number | null;
+  created_at: string;
+};
+
+type KeywordInsert = Pick<KeywordRow, 'keyword'>;
+
+type WatchAccountInsert = Pick<WatchAccountRow, 'platform' | 'name' | 'url' | 'status' | 'note'>;
+
+type SupabaseErrorLike = {
+  message: string;
+};
+
+type SupabaseListResult<Row> = {
+  data: Row[] | null;
+  error: SupabaseErrorLike | null;
+};
+
+type SupabaseSingleResult<Row> = {
+  data: Row | null;
+  error: SupabaseErrorLike | null;
+};
+
+type SupabaseSelectBuilder<Row> = {
+  order(column: string, options: { ascending: boolean }): Promise<SupabaseListResult<Row>>;
+  single(): Promise<SupabaseSingleResult<Row>>;
+};
+
+type SupabaseTableBuilder<Row, Insert> = {
+  select(columns: string): SupabaseSelectBuilder<Row>;
+  insert(values: Insert): {
+    select(columns: string): SupabaseSelectBuilder<Row>;
+  };
+};
+
+type MonitoringSupabaseClient = {
+  from(table: 'content_items'): SupabaseTableBuilder<ContentRow, never>;
+  from(table: 'monitor_keywords'): SupabaseTableBuilder<KeywordRow, KeywordInsert>;
+  from(table: 'monitored_accounts'): SupabaseTableBuilder<WatchAccountRow, WatchAccountInsert>;
+};
+
 type AddKeywordRequest = {
   type: 'keyword';
   keyword: string;
@@ -46,6 +114,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isPlatform(value: unknown): value is Platform {
   return typeof value === 'string' && platforms.includes(value as Platform);
+}
+
+function rowsFromSupabase<Row>(data: Row[] | null): Row[] {
+  return data ?? [];
+}
+
+function rowFromSupabase<Row>(data: Row | null, fallbackMessage: string): Row {
+  if (!data) {
+    throw new Error(fallbackMessage);
+  }
+
+  return data;
+}
+
+function asMonitoringSupabaseClient(client: unknown): MonitoringSupabaseClient {
+  return client as MonitoringSupabaseClient;
 }
 
 function parsePostRequest(value: unknown): MonitoringPostRequest | null {
@@ -85,20 +169,28 @@ export async function GET() {
   }
 
   try {
-    const [contentsResult, keywordsResult, accountsResult] = await Promise.all([
-      supabase.from('content_items').select('*').order('discovered_at', { ascending: false }),
-      supabase.from('monitor_keywords').select('keyword').order('created_at', { ascending: true }),
-      supabase.from('monitored_accounts').select('*').order('created_at', { ascending: false }),
-    ]);
+    const db = asMonitoringSupabaseClient(supabase);
+    const contentsQuery = db
+      .from('content_items')
+      .select('id, platform, title, url, creator, source, discovered_at, views, impressions, engagements, peak_viewers, vod_views, created_at')
+      .order('discovered_at', { ascending: false });
+    const keywordsQuery = db.from('monitor_keywords').select('id, keyword, created_at').order('created_at', { ascending: true });
+    const accountsQuery = db.from('monitored_accounts').select('id, platform, name, url, status, note, created_at').order('created_at', { ascending: false });
+
+    const [contentsResult, keywordsResult, accountsResult] = await Promise.all([contentsQuery, keywordsQuery, accountsQuery]);
 
     if (contentsResult.error || keywordsResult.error || accountsResult.error) {
       throw new Error(contentsResult.error?.message || keywordsResult.error?.message || accountsResult.error?.message || 'Supabase 查询失败');
     }
 
+    const contentRows: ContentRow[] = rowsFromSupabase(contentsResult.data);
+    const keywordRows: KeywordRow[] = rowsFromSupabase(keywordsResult.data);
+    const accountRows: WatchAccountRow[] = rowsFromSupabase(accountsResult.data);
+
     return NextResponse.json({
-      contents: contentsResult.data.map(mapContentRowToItem),
-      keywords: keywordsResult.data.map((row) => row.keyword),
-      accounts: accountsResult.data.map(mapAccountRowToItem),
+      contents: contentRows.map(mapContentRowToItem),
+      keywords: keywordRows.map((row) => row.keyword),
+      accounts: accountRows.map(mapAccountRowToItem),
       latestScanTime,
       source: 'supabase',
     } satisfies MonitoringPayload);
@@ -141,6 +233,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const db = asMonitoringSupabaseClient(supabase);
+
     if (parsedBody.type === 'keyword') {
       const keyword = parsedBody.keyword.trim();
 
@@ -148,13 +242,16 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ message: '关键词不能为空' }, { status: 400 });
       }
 
-      const { data, error } = await supabase.from('monitor_keywords').insert({ keyword }).select('keyword').single();
+      const keywordInsert: KeywordInsert = { keyword };
+      const { data, error } = await db.from('monitor_keywords').insert(keywordInsert).select('id, keyword, created_at').single();
 
       if (error) {
         throw new Error(error.message);
       }
 
-      return NextResponse.json({ keyword: data.keyword, source: 'supabase' });
+      const keywordRow = rowFromSupabase(data, 'Supabase 未返回新增关键词');
+
+      return NextResponse.json({ keyword: keywordRow.keyword, source: 'supabase' });
     }
 
     const url = parsedBody.url.trim();
@@ -164,23 +261,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: '账号链接和账号名不能为空' }, { status: 400 });
     }
 
-    const { data, error } = await supabase
+    const accountInsert: WatchAccountInsert = {
+      platform: parsedBody.platform,
+      name,
+      url,
+      status: '监控中',
+      note: parsedBody.note.trim() || null,
+    };
+
+    const { data, error } = await db
       .from('monitored_accounts')
-      .insert({
-        platform: parsedBody.platform,
-        name,
-        url,
-        status: '监控中',
-        note: parsedBody.note.trim() || null,
-      })
-      .select('*')
+      .insert(accountInsert)
+      .select('id, platform, name, url, status, note, created_at')
       .single();
 
     if (error) {
       throw new Error(error.message);
     }
 
-    return NextResponse.json({ account: mapAccountRowToItem(data), source: 'supabase' });
+    const accountRow = rowFromSupabase(data, 'Supabase 未返回新增账号');
+
+    return NextResponse.json({ account: mapAccountRowToItem(accountRow), source: 'supabase' });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Supabase 写入失败';
 

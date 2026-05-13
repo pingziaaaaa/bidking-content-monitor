@@ -31,6 +31,7 @@ type WatchAccountRow = {
 type ContentRow = {
   id: string;
   platform: Platform;
+  platform_content_id: string | null;
   title: string;
   url: string;
   creator: string;
@@ -206,7 +207,7 @@ export async function GET() {
     const db = asMonitoringSupabaseClient(supabase);
     const contentsQuery = db
       .from('content_items')
-      .select('id, platform, title, url, creator, source, discovered_at, followers, views, impressions, engagements, peak_viewers, vod_views, created_at')
+      .select('id, platform, platform_content_id, title, url, creator, source, discovered_at, followers, views, impressions, engagements, peak_viewers, vod_views, created_at')
       .order('discovered_at', { ascending: false });
     const keywordsQuery = db.from('monitor_keywords').select('id, keyword, created_at').order('created_at', { ascending: true });
     const accountsQuery = db.from('monitored_accounts').select('id, platform, name, url, status, note, created_at').order('created_at', { ascending: false });

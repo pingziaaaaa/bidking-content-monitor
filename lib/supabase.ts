@@ -56,6 +56,7 @@ export type Database = {
         Row: {
           id: string;
           platform: Platform;
+          platform_content_id: string | null;
           title: string;
           url: string;
           creator: string;
@@ -72,6 +73,7 @@ export type Database = {
         Insert: {
           id?: string;
           platform: Platform;
+          platform_content_id?: string | null;
           title: string;
           url: string;
           creator: string;
@@ -88,6 +90,7 @@ export type Database = {
         Update: {
           id?: string;
           platform?: Platform;
+          platform_content_id?: string | null;
           title?: string;
           url?: string;
           creator?: string;

@@ -175,20 +175,48 @@ export default function Home() {
     }
   }
 
-  function handleScan() {
+  async function handleScan() {
     if (isScanning) {
       return;
     }
 
     setIsScanning(true);
-    setScanMessage('正在巡查 YouTube / X / Twitch 三个平台，请稍候...');
+    setScanMessage('正在巡查 YouTube，请稍候...');
 
-    window.setTimeout(() => {
-      const nextScanTime = formatBeijingTime(new Date());
-      setLatestScanTime(nextScanTime);
+    try {
+      const response = await fetch('/api/scan/youtube', {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || '巡查失败');
+      }
+
+      const result = await response.json();
+
+      if (result.ok) {
+        // 重新加载数据
+        const monitoringResponse = await fetch('/api/monitoring');
+        if (monitoringResponse.ok) {
+          const payload = await monitoringResponse.json();
+          setContentItems(payload.contents);
+          setKeywords(payload.keywords);
+          setAccounts(payload.accounts);
+          setLatestScanTime(payload.latestScanTime);
+          setDataMessage(payload.message || '数据已更新');
+        }
+
+        setScanMessage(result.message);
+      } else {
+        setScanMessage(`巡查失败：${result.message}`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '巡查失败';
+      setScanMessage(`巡查失败：${message}`);
+    } finally {
       setIsScanning(false);
-      setScanMessage(`巡查完成：当前筛选「${activeFilter}」共发现 ${filteredContents.length} 条内容，最近巡查时间已更新。`);
-    }, 1000);
+    }
   }
 
   async function handleAddAccount(account: NewAccountInput) {

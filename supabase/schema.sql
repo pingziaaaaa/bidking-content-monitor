@@ -17,11 +17,13 @@ create table if not exists public.monitored_accounts (
 create table if not exists public.content_items (
   id uuid primary key default gen_random_uuid(),
   platform text not null check (platform in ('YouTube', 'X', 'Twitch')),
+  platform_content_id text,
   title text not null,
   url text not null,
   creator text not null,
   source text not null check (source in ('关键词匹配', '指定账号')),
   discovered_at timestamptz not null default now(),
+  followers integer,
   views integer,
   impressions integer,
   engagements integer,

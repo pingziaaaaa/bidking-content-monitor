@@ -91,6 +91,10 @@ export default function Home() {
   const [isScanning, setIsScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState('');
   const [dataMessage, setDataMessage] = useState('');
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importLinksText, setImportLinksText] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
+  const [importError, setImportError] = useState('');
 
   useEffect(() => {
     let isMounted = true;
@@ -254,6 +258,78 @@ export default function Home() {
       setScanMessage(`巡查失败：${message}`);
     } finally {
       setIsScanning(false);
+    }
+  }
+
+  function handleOpenImportModal() {
+    setImportLinksText('');
+    setImportError('');
+    setIsImportModalOpen(true);
+  }
+
+  function handleCloseImportModal() {
+    setImportLinksText('');
+    setImportError('');
+    setIsImportModalOpen(false);
+  }
+
+  async function handleSubmitImportLinks() {
+    if (isImporting) {
+      return;
+    }
+
+    const links = importLinksText
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+    if (links.length === 0) {
+      setImportError('请输入一个或多个 X 链接，每行一条。');
+      return;
+    }
+
+    setIsImporting(true);
+    setImportError('');
+
+    try {
+      const response = await fetch('/api/manual/x-link-import', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ links }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.message || '导入失败，请稍后重试。');
+      }
+
+      if (result.failedLinks && result.failedLinks.length > 0) {
+        const invalidLinks = result.failedLinks
+          .map((item: { link: string; reason: string }) => `${item.link}：${item.reason}`)
+          .join('；');
+        setDataMessage(`已识别 ${result.apiSuccessCount} 条，待补充 ${result.fallbackCount} 条，失败链接 ${result.failedLinks.length} 条：${invalidLinks}`);
+      } else {
+        setDataMessage(`已识别 ${result.apiSuccessCount} 条，待补充 ${result.fallbackCount} 条，失败链接 0 条。`);
+      }
+
+      const monitoringResponse = await fetch('/api/monitoring');
+      if (monitoringResponse.ok) {
+        const payload = (await monitoringResponse.json()) as MonitoringResponse;
+        setContentItems(payload.contents);
+        setKeywords(payload.keywords);
+        setAccounts(payload.accounts);
+        setLatestScanTime(payload.latestScanTime);
+      }
+
+      handleCloseImportModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '导入失败';
+      setImportError(message);
+    } finally {
+      setIsImporting(false);
     }
   }
 
@@ -467,7 +543,58 @@ export default function Home() {
             <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-700 shadow-sm">{scanMessage}</div>
           ) : null}
           <PlatformFilter activeFilter={activeFilter} onFilterChange={setActiveFilter} />
-          <ContentTable contents={filteredContents} isScanning={isScanning} onExport={handleExport} onScan={handleScan} onDeleteContent={handleDeleteContent} onClearAllContents={handleClearAllContents} />
+          <ContentTable contents={filteredContents} isScanning={isScanning} onExport={handleExport} onScan={handleScan} onImportXLinks={handleOpenImportModal} onDeleteContent={handleDeleteContent} onClearAllContents={handleClearAllContents} />
+
+          {isImportModalOpen ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6">
+              <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl ring-1 ring-slate-200">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-950">导入 X 链接</h3>
+                    <p className="mt-2 text-sm leading-6 text-slate-500">支持单条或批量链接，每行一个。系统会自动解析 username 和 tweet id，并尝试通过 X API 补全数据。</p>
+                  </div>
+                  <button
+                    className="rounded-full border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300"
+                    type="button"
+                    onClick={handleCloseImportModal}
+                  >
+                    关闭
+                  </button>
+                </div>
+
+                <div className="mt-6 space-y-4">
+                  <label className="block text-sm font-medium text-slate-700">X 链接</label>
+                  <textarea
+                    className="min-h-[180px] w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    value={importLinksText}
+                    onChange={(event) => setImportLinksText(event.target.value)}
+                    placeholder="每行输入一个 X 链接，例如：https://x.com/katsu_00/status/123456789"
+                  />
+                  <p className="text-sm text-slate-500">仅解析链接，不进行网页抓取。若 X API 不可用，将创建待补充记录。</p>
+                  {importError ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{importError}</div> : null}
+                </div>
+
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                  <button
+                    className="rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300"
+                    type="button"
+                    onClick={handleCloseImportModal}
+                    disabled={isImporting}
+                  >
+                    取消
+                  </button>
+                  <button
+                    className="rounded-full bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-blue-200 transition hover:bg-blue-700 disabled:cursor-wait disabled:bg-blue-400"
+                    type="button"
+                    onClick={handleSubmitImportLinks}
+                    disabled={isImporting}
+                  >
+                    {isImporting ? '导入中...' : '开始导入'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </section>
 
         <ConfigSidebar keywords={keywords} accounts={accounts} onAddKeyword={handleAddKeyword} onAddAccount={handleAddAccount} onDeleteKeyword={handleDeleteKeyword} onDeleteAccount={handleDeleteAccount} />

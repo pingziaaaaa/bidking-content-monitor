@@ -6,6 +6,7 @@ type ContentTableProps = {
   isScanning: boolean;
   onExport: () => void;
   onScan: () => void;
+  onImportXLinks: () => void;
   onDeleteContent: (contentId: string) => void;
   onClearAllContents: () => void;
 };
@@ -16,7 +17,7 @@ const clampStyles = {
   overflow: 'hidden',
 };
 
-export function ContentTable({ contents, isScanning, onExport, onScan, onDeleteContent, onClearAllContents }: ContentTableProps) {
+export function ContentTable({ contents, isScanning, onExport, onScan, onImportXLinks, onDeleteContent, onClearAllContents }: ContentTableProps) {
   return (
     <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
@@ -25,6 +26,13 @@ export function ContentTable({ contents, isScanning, onExport, onScan, onDeleteC
             <p className="mt-1 text-sm text-slate-500">按发现时间倒序展示，命中关键词与指定账号内容统一汇总。</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <button
+              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700"
+              type="button"
+              onClick={onImportXLinks}
+            >
+              导入 X 链接
+            </button>
             <button
               className="rounded-full border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
               type="button"

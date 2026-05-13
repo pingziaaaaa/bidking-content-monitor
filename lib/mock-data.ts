@@ -6,7 +6,7 @@ export type ContentItem = {
   title: string;
   url: string;
   creator: string;
-  source: '关键词匹配' | '指定账号';
+  source: '关键词匹配' | '指定账号' | '链接识别' | '链接导入待补充';
   discoveredAt: string;
   metrics: {
     followers?: number;

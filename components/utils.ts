@@ -6,6 +6,10 @@ export function formatNumber(value: number) {
   return numberFormatter.format(value);
 }
 
+export function formatOptionalNumber(value: number | undefined) {
+  return value !== undefined ? formatNumber(value) : '—';
+}
+
 export function platformStyles(platform: Platform) {
   const styles = {
     YouTube: 'bg-red-50 text-red-700 ring-red-100',
@@ -26,7 +30,7 @@ export function getPrimaryMetric(item: ContentItem) {
       return `Impressions ${formatNumber(item.metrics.impressions)}`;
     }
 
-    return item.metrics.engagements !== undefined ? `互动 ${formatNumber(item.metrics.engagements)}` : '互动 -';
+    return item.metrics.engagements !== undefined ? `互动 ${formatNumber(item.metrics.engagements)}` : '互动 —';
   }
 
   const peakViewers = item.metrics.peakViewers !== undefined ? formatNumber(item.metrics.peakViewers) : '-';

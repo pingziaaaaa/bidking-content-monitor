@@ -36,6 +36,7 @@ type ContentRow = {
   creator: string;
   source: (typeof mockContents)[number]['source'];
   discovered_at: string;
+  followers: number | null;
   views: number | null;
   impressions: number | null;
   engagements: number | null;
@@ -172,7 +173,7 @@ export async function GET() {
     const db = asMonitoringSupabaseClient(supabase);
     const contentsQuery = db
       .from('content_items')
-      .select('id, platform, title, url, creator, source, discovered_at, views, impressions, engagements, peak_viewers, vod_views, created_at')
+      .select('id, platform, title, url, creator, source, discovered_at, followers, views, impressions, engagements, peak_viewers, vod_views, created_at')
       .order('discovered_at', { ascending: false });
     const keywordsQuery = db.from('monitor_keywords').select('id, keyword, created_at').order('created_at', { ascending: true });
     const accountsQuery = db.from('monitored_accounts').select('id, platform, name, url, status, note, created_at').order('created_at', { ascending: false });

@@ -175,6 +175,22 @@ export default function Home() {
     }
   }
 
+  function handleScan() {
+    if (isScanning) {
+      return;
+    }
+
+    setIsScanning(true);
+    setScanMessage('正在巡查 YouTube / X / Twitch 三个平台，请稍候...');
+
+    window.setTimeout(() => {
+      const nextScanTime = formatBeijingTime(new Date());
+      setLatestScanTime(nextScanTime);
+      setIsScanning(false);
+      setScanMessage(`巡查完成：当前筛选「${activeFilter}」共发现 ${filteredContents.length} 条内容，最近巡查时间已更新。`);
+    }, 1000);
+  }
+
   async function handleAddAccount(account: NewAccountInput) {
     const url = account.url.trim();
     const note = account.note.trim();
@@ -215,22 +231,6 @@ export default function Home() {
     }
   }
 
-  function handleScan() {
-    if (isScanning) {
-      return;
-    }
-
-    setIsScanning(true);
-    setScanMessage('正在巡查 YouTube / X / Twitch 三个平台，请稍候...');
-
-    window.setTimeout(() => {
-      const nextScanTime = formatBeijingTime(new Date());
-      setLatestScanTime(nextScanTime);
-      setIsScanning(false);
-      setScanMessage(`巡查完成：当前筛选「${activeFilter}」共发现 ${filteredContents.length} 条内容，最近巡查时间已更新。`);
-    }, 1000);
-  }
-
   function handleExport() {
     const csv = buildContentCsv(filteredContents);
     const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
@@ -243,6 +243,129 @@ export default function Home() {
     link.click();
     link.remove();
     URL.revokeObjectURL(objectUrl);
+  }
+
+  async function handleDeleteKeyword(keyword: string) {
+    if (keywords.length <= 1) {
+      alert('至少保留一个关键词');
+      return;
+    }
+
+    if (!window.confirm(`确定删除关键词 "${keyword}" 吗？`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/monitoring', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ type: 'keyword', keyword }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || '删除失败');
+      }
+
+      const result = await response.json();
+      setKeywords((currentKeywords) => currentKeywords.filter((k) => k !== keyword));
+      setDataMessage(result.source === 'supabase' ? '关键词已从 Supabase 删除。' : '关键词已从本地状态删除。');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '删除失败';
+      setDataMessage(`删除失败：${message}`);
+    }
+  }
+
+  async function handleDeleteAccount(accountId: string) {
+    const account = accounts.find((a) => a.id === accountId);
+    if (!account) return;
+
+    if (!window.confirm(`确定删除账号 "${account.name}" 吗？`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/monitoring', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ type: 'account', id: accountId }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || '删除失败');
+      }
+
+      const result = await response.json();
+      setAccounts((currentAccounts) => currentAccounts.filter((a) => a.id !== accountId));
+      setDataMessage(result.source === 'supabase' ? '账号已从 Supabase 删除。' : '账号已从本地状态删除。');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '删除失败';
+      setDataMessage(`删除失败：${message}`);
+    }
+  }
+
+  async function handleDeleteContent(contentId: string) {
+    const content = contentItems.find((c) => c.id === contentId);
+    if (!content) return;
+
+    if (!window.confirm(`确定删除内容 "${content.title || '无标题'}" 吗？`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/monitoring', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ type: 'content', id: contentId }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || '删除失败');
+      }
+
+      const result = await response.json();
+      setContentItems((currentContents) => currentContents.filter((c) => c.id !== contentId));
+      setDataMessage(result.source === 'supabase' ? '内容已从 Supabase 删除。' : '内容已从本地状态删除。');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '删除失败';
+      setDataMessage(`删除失败：${message}`);
+    }
+  }
+
+  async function handleClearAllContents() {
+    if (!window.confirm('确定清空所有内容记录吗？此操作不可撤销。')) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/monitoring', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ type: 'content', id: 'all' }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || '清空失败');
+      }
+
+      const result = await response.json();
+      setContentItems([]);
+      setDataMessage(result.source === 'supabase' ? '所有内容已从 Supabase 清空。' : '所有内容已从本地状态清空。');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '清空失败';
+      setDataMessage(`清空失败：${message}`);
+    }
   }
 
   return (
@@ -278,10 +401,10 @@ export default function Home() {
             <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-700 shadow-sm">{scanMessage}</div>
           ) : null}
           <PlatformFilter activeFilter={activeFilter} onFilterChange={setActiveFilter} />
-          <ContentTable contents={filteredContents} isScanning={isScanning} onExport={handleExport} onScan={handleScan} />
+          <ContentTable contents={filteredContents} isScanning={isScanning} onExport={handleExport} onScan={handleScan} onDeleteContent={handleDeleteContent} onClearAllContents={handleClearAllContents} />
         </section>
 
-        <ConfigSidebar keywords={keywords} accounts={accounts} onAddKeyword={handleAddKeyword} onAddAccount={handleAddAccount} />
+        <ConfigSidebar keywords={keywords} accounts={accounts} onAddKeyword={handleAddKeyword} onAddAccount={handleAddAccount} onDeleteKeyword={handleDeleteKeyword} onDeleteAccount={handleDeleteAccount} />
       </main>
     </div>
   );

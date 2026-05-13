@@ -66,12 +66,17 @@ type SupabaseSingleResult<Row> = {
 type SupabaseSelectBuilder<Row> = {
   order(column: string, options: { ascending: boolean }): Promise<SupabaseListResult<Row>>;
   single(): Promise<SupabaseSingleResult<Row>>;
+  limit(count: number): Promise<SupabaseListResult<Row>>;
 };
 
 type SupabaseTableBuilder<Row, Insert> = {
   select(columns: string): SupabaseSelectBuilder<Row>;
   insert(values: Insert): {
     select(columns: string): SupabaseSelectBuilder<Row>;
+  };
+  delete(): {
+    eq(column: string, value: string): Promise<{ error: SupabaseErrorLike | null }>;
+    neq(column: string, value: string): Promise<{ error: SupabaseErrorLike | null }>;
   };
 };
 
@@ -95,6 +100,12 @@ type AddAccountRequest = {
 };
 
 type MonitoringPostRequest = AddKeywordRequest | AddAccountRequest;
+
+type DeleteRequest = {
+  type: 'keyword' | 'account' | 'content';
+  id?: string;
+  keyword?: string;
+};
 
 const platforms: Platform[] = ['YouTube', 'X', 'Twitch'];
 
@@ -152,6 +163,28 @@ function parsePostRequest(value: unknown): MonitoringPostRequest | null {
       url: value.url,
       name: value.name,
       note: value.note,
+    };
+  }
+
+  return null;
+}
+
+function parseDeleteRequest(value: unknown): DeleteRequest | null {
+  if (!isRecord(value) || typeof value.type !== 'string') {
+    return null;
+  }
+
+  if (value.type === 'keyword' && typeof value.keyword === 'string') {
+    return {
+      type: 'keyword',
+      keyword: value.keyword,
+    };
+  }
+
+  if (['account', 'content'].includes(value.type) && typeof value.id === 'string') {
+    return {
+      type: value.type as DeleteRequest['type'],
+      id: value.id,
     };
   }
 
@@ -285,6 +318,99 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ account: mapAccountRowToItem(accountRow), source: 'supabase' });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Supabase 写入失败';
+
+    return NextResponse.json({ message }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const parsedBody = parseDeleteRequest(await request.json());
+
+  if (!parsedBody) {
+    return NextResponse.json({ message: '请求参数不合法' }, { status: 400 });
+  }
+
+  if (!isSupabaseConfigured()) {
+    return NextResponse.json({ message: '删除成功（mock mode）', source: 'mock' });
+  }
+
+  const supabase = createServerSupabaseClient();
+
+  if (!supabase) {
+    return NextResponse.json({ message: 'Supabase client 初始化失败' }, { status: 500 });
+  }
+
+  try {
+    const db = asMonitoringSupabaseClient(supabase);
+
+    if (parsedBody.type === 'keyword') {
+      if (!parsedBody.keyword) {
+        return NextResponse.json({ message: '关键词不能为空' }, { status: 400 });
+      }
+
+      // 检查是否至少保留一个关键词
+      const { data: keywordsData, error: keywordsError } = await db.from('monitor_keywords').select('keyword').limit(2);
+
+      if (keywordsError) {
+        throw new Error(keywordsError.message);
+      }
+
+      if (!keywordsData || keywordsData.length <= 1) {
+        return NextResponse.json({ message: '至少保留一个关键词' }, { status: 400 });
+      }
+
+      const { error } = await db.from('monitor_keywords').delete().eq('keyword', parsedBody.keyword);
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      return NextResponse.json({ message: '关键词删除成功', source: 'supabase' });
+    }
+
+    if (parsedBody.type === 'account') {
+      if (!parsedBody.id) {
+        return NextResponse.json({ message: '账号 ID 不能为空' }, { status: 400 });
+      }
+
+      const { error } = await db.from('monitored_accounts').delete().eq('id', parsedBody.id);
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      return NextResponse.json({ message: '账号删除成功', source: 'supabase' });
+    }
+
+    if (parsedBody.type === 'content') {
+      if (!parsedBody.id) {
+        return NextResponse.json({ message: '内容 ID 不能为空' }, { status: 400 });
+      }
+
+      if (parsedBody.id === 'all') {
+        // 清空所有内容
+        const { error } = await db.from('content_items').delete().neq('id', '00000000-0000-0000-0000-000000000000'); // 删除所有
+
+        if (error) {
+          throw new Error(error.message);
+        }
+
+        return NextResponse.json({ message: '内容清空成功', source: 'supabase' });
+      } else {
+        // 删除单个内容
+        const { error } = await db.from('content_items').delete().eq('id', parsedBody.id);
+
+        if (error) {
+          throw new Error(error.message);
+        }
+
+        return NextResponse.json({ message: '内容删除成功', source: 'supabase' });
+      }
+    }
+
+    return NextResponse.json({ message: '不支持的删除类型' }, { status: 400 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '删除失败';
 
     return NextResponse.json({ message }, { status: 500 });
   }

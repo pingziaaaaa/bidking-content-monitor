@@ -15,6 +15,8 @@ type ConfigSidebarProps = {
   accounts: AccountItem[];
   onAddKeyword: (keyword: string) => void;
   onAddAccount: (account: NewAccountInput) => void;
+  onDeleteKeyword: (keyword: string) => void;
+  onDeleteAccount: (accountId: string) => void;
 };
 
 function Card({ children, title }: { children: ReactNode; title: string }) {
@@ -28,14 +30,26 @@ function Card({ children, title }: { children: ReactNode; title: string }) {
   );
 }
 
-function AccountRow({ account }: { account: AccountItem }) {
+function AccountRow({ account, onDelete }: { account: AccountItem; onDelete: (id: string) => void }) {
   return (
     <div className="rounded-2xl border border-slate-100 p-3">
       <div className="flex items-center justify-between gap-2">
         <span className={`rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${platformStyles(account.platform)}`}>{account.platform}</span>
-        <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${account.status === '监控中' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-          {account.status}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${account.status === '监控中' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+            {account.status}
+          </span>
+          <button
+            className="rounded-full p-1 text-slate-400 hover:text-red-500 transition"
+            type="button"
+            onClick={() => onDelete(account.id)}
+            title="删除账号"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
       </div>
       <p className="mt-3 font-semibold text-slate-900">{account.name}</p>
       <a className="mt-1 block truncate text-sm text-blue-600 hover:underline" href={account.url}>
@@ -46,7 +60,7 @@ function AccountRow({ account }: { account: AccountItem }) {
   );
 }
 
-export function ConfigSidebar({ keywords, accounts, onAddKeyword, onAddAccount }: ConfigSidebarProps) {
+export function ConfigSidebar({ keywords, accounts, onAddKeyword, onAddAccount, onDeleteKeyword, onDeleteAccount }: ConfigSidebarProps) {
   const [keywordInput, setKeywordInput] = useState('');
   const [accountPlatform, setAccountPlatform] = useState<Platform>('YouTube');
   const [accountUrl, setAccountUrl] = useState('');
@@ -70,9 +84,19 @@ export function ConfigSidebar({ keywords, accounts, onAddKeyword, onAddAccount }
       <Card title="监控关键词">
         <div className="flex flex-wrap gap-2">
           {keywords.map((keyword) => (
-            <span key={keyword} className="rounded-full bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700">
-              {keyword}
-            </span>
+            <div key={keyword} className="flex items-center gap-1 rounded-full bg-slate-100 px-3 py-2">
+              <span className="text-sm font-semibold text-slate-700">{keyword}</span>
+              <button
+                className="ml-1 rounded-full p-0.5 text-slate-400 hover:text-red-500 transition"
+                type="button"
+                onClick={() => onDeleteKeyword(keyword)}
+                title="删除关键词"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           ))}
         </div>
         <form className="mt-4 flex gap-2" onSubmit={handleKeywordSubmit}>
@@ -120,7 +144,7 @@ export function ConfigSidebar({ keywords, accounts, onAddKeyword, onAddAccount }
         </form>
         <div className="space-y-3">
           {accounts.map((account) => (
-            <AccountRow key={account.id} account={account} />
+            <AccountRow key={account.id} account={account} onDelete={onDeleteAccount} />
           ))}
         </div>
       </Card>

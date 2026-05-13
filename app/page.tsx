@@ -181,36 +181,57 @@ export default function Home() {
     }
 
     setIsScanning(true);
-    setScanMessage('正在巡查 YouTube，请稍候...');
+    setScanMessage('正在巡查 YouTube 和 X，请稍候...');
 
     try {
-      const response = await fetch('/api/scan/youtube', {
-        method: 'POST',
-      });
+      const results = [];
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || '巡查失败');
-      }
+      // 先调用 YouTube
+      try {
+        const youtubeResponse = await fetch('/api/scan/youtube', {
+          method: 'POST',
+        });
 
-      const result = await response.json();
-
-      if (result.ok) {
-        // 重新加载数据
-        const monitoringResponse = await fetch('/api/monitoring');
-        if (monitoringResponse.ok) {
-          const payload = await monitoringResponse.json();
-          setContentItems(payload.contents);
-          setKeywords(payload.keywords);
-          setAccounts(payload.accounts);
-          setLatestScanTime(payload.latestScanTime);
-          setDataMessage(payload.message || '数据已更新');
+        if (!youtubeResponse.ok) {
+          const errorData = await youtubeResponse.json();
+          results.push(`YouTube: ${errorData.message}`);
+        } else {
+          const result = await youtubeResponse.json();
+          results.push(`YouTube: ${result.message}`);
         }
-
-        setScanMessage(result.message);
-      } else {
-        setScanMessage(`巡查失败：${result.message}`);
+      } catch (error) {
+        results.push(`YouTube: ${error instanceof Error ? error.message : '扫描失败'}`);
       }
+
+      // 再调用 X
+      try {
+        const xResponse = await fetch('/api/scan/x', {
+          method: 'POST',
+        });
+
+        if (!xResponse.ok) {
+          const errorData = await xResponse.json();
+          results.push(`X: ${errorData.message}`);
+        } else {
+          const result = await xResponse.json();
+          results.push(`X: ${result.message}`);
+        }
+      } catch (error) {
+        results.push(`X: ${error instanceof Error ? error.message : '扫描失败'}`);
+      }
+
+      // 重新加载数据
+      const monitoringResponse = await fetch('/api/monitoring');
+      if (monitoringResponse.ok) {
+        const payload = await monitoringResponse.json();
+        setContentItems(payload.contents);
+        setKeywords(payload.keywords);
+        setAccounts(payload.accounts);
+        setLatestScanTime(payload.latestScanTime);
+        setDataMessage(payload.message || '数据已更新');
+      }
+
+      setScanMessage(results.join('；'));
     } catch (error) {
       const message = error instanceof Error ? error.message : '巡查失败';
       setScanMessage(`巡查失败：${message}`);

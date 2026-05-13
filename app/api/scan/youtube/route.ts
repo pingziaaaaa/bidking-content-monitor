@@ -162,13 +162,50 @@ type ScanResult = {
   insertedCount: number;
   updatedCount: number;
   totalFound: number;
+  filteredOutCount: number;
   message: string;
 };
 
+function normalizeKeyword(raw: string) {
+  return raw.toLowerCase().replace(/#/g, '').trim();
+}
+
+function normalizeText(text: string | undefined | null) {
+  return String(text ?? '').toLowerCase().trim();
+}
+
+function matchesBidkingKeyword(keyword: string, text: string) {
+  const normalizedKeyword = normalizeKeyword(keyword);
+  if (!normalizedKeyword) {
+    return false;
+  }
+
+  const normalizedText = normalizeText(text);
+  const keywordPhrase = normalizedKeyword;
+  const hashKeyword = `#${normalizedKeyword}`;
+
+  if (normalizedKeyword === 'king') {
+    return normalizedText.includes('bidking') || normalizedText.includes('#bidking');
+  }
+
+  return (
+    normalizedText.includes(keywordPhrase) ||
+    normalizedText.includes('bidking') ||
+    normalizedText.includes('#bidking') ||
+    normalizedText.includes(hashKeyword)
+  );
+}
+
 async function fetchYouTubeSearch(keyword: string, apiKey: string, publishedAfter: string): Promise<YouTubeSearchResult[]> {
+  const searchQuery = keyword.trim().startsWith('#')
+    ? `#${normalizeKeyword(keyword)}`
+    : normalizeKeyword(keyword).includes(' ')
+    ? `"${normalizeKeyword(keyword)}"`
+    : normalizeKeyword(keyword);
+
   const url = new URL('https://www.googleapis.com/youtube/v3/search');
   url.searchParams.set('part', 'snippet');
-  url.searchParams.set('q', keyword);
+  url.searchParams.set('q', searchQuery);
   url.searchParams.set('type', 'video');
   url.searchParams.set('order', 'date');
   url.searchParams.set('maxResults', '10');
@@ -228,6 +265,7 @@ export async function POST(request: NextRequest) {
       insertedCount: 0,
       updatedCount: 0,
       totalFound: 0,
+      filteredOutCount: 0,
       message: 'YouTube API Key 未配置',
     } satisfies ScanResult);
   }
@@ -239,6 +277,7 @@ export async function POST(request: NextRequest) {
       insertedCount: 0,
       updatedCount: 0,
       totalFound: 0,
+      filteredOutCount: 0,
       message: 'Supabase 未配置',
     } satisfies ScanResult);
   }
@@ -251,6 +290,7 @@ export async function POST(request: NextRequest) {
       insertedCount: 0,
       updatedCount: 0,
       totalFound: 0,
+      filteredOutCount: 0,
       message: 'Supabase client 初始化失败',
     } satisfies ScanResult);
   }
@@ -274,6 +314,7 @@ export async function POST(request: NextRequest) {
         insertedCount: 0,
         updatedCount: 0,
         totalFound: 0,
+        filteredOutCount: 0,
         message: '没有关键词需要扫描',
       } satisfies ScanResult);
     }
@@ -284,6 +325,7 @@ export async function POST(request: NextRequest) {
     let totalFound = 0;
     let insertedCount = 0;
     let updatedCount = 0;
+    let filteredOutCount = 0;
 
     for (const keyword of keywords) {
       try {
@@ -293,9 +335,25 @@ export async function POST(request: NextRequest) {
 
         totalFound += searchResults.length;
 
+        const filteredResults = searchResults.filter((searchItem) => {
+          const title = normalizeText(searchItem.snippet.title);
+          const description = normalizeText(searchItem.snippet.description);
+          const keywordText = normalizeKeyword(keyword);
+
+          return (
+            matchesBidkingKeyword(keywordText, title) ||
+            matchesBidkingKeyword(keywordText, description)
+          );
+        });
+
+        filteredOutCount += searchResults.length - filteredResults.length;
+        if (filteredResults.length === 0) {
+          continue;
+        }
+
         // 提取 videoIds 和 channelIds
-        const videoIds = searchResults.map(item => item.id.videoId);
-        const channelIds = [...new Set(searchResults.map(item => item.snippet.channelId))];
+        const videoIds = filteredResults.map(item => item.id.videoId);
+        const channelIds = [...new Set(filteredResults.map(item => item.snippet.channelId))];
 
         // 获取视频详情
         const videoResults = await fetchYouTubeVideos(videoIds, apiKey);
@@ -306,7 +364,7 @@ export async function POST(request: NextRequest) {
         const channelMap = new Map(channelResults.map(channel => [channel.id, channel]));
 
         // 处理每个搜索结果
-        for (const searchItem of searchResults) {
+        for (const searchItem of filteredResults) {
           const videoId = searchItem.id.videoId;
           const video = videoMap.get(videoId);
           if (!video) continue;
@@ -374,7 +432,8 @@ export async function POST(request: NextRequest) {
       insertedCount,
       updatedCount,
       totalFound,
-      message: `扫描完成，共找到 ${totalFound} 个视频，新增 ${insertedCount} 个，更新 ${updatedCount} 个`,
+      filteredOutCount,
+      message: `扫描完成，共找到 ${totalFound} 个视频，过滤掉 ${filteredOutCount} 个无关结果，新增 ${insertedCount} 个，更新 ${updatedCount} 个`,
     } satisfies ScanResult);
   } catch (error) {
     const message = error instanceof Error ? error.message : '扫描失败';
@@ -384,6 +443,7 @@ export async function POST(request: NextRequest) {
       insertedCount: 0,
       updatedCount: 0,
       totalFound: 0,
+      filteredOutCount: 0,
       message,
     } satisfies ScanResult, { status: 500 });
   }

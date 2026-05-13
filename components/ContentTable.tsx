@@ -56,7 +56,7 @@ export function ContentTable({ contents, isScanning, onExport, onScan, onDeleteC
         <table className="min-w-[1440px] w-full border-separate border-spacing-0 text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             <tr>
-              {['平台', '标题/正文', '内容链接', '创作者账号名', 'Followers', 'Views', 'Impressions', 'Peak Viewers', 'VOD Views', '来源', '发现时间', '操作'].map((header) => (
+              {['平台', '发布时间', '标题/正文', '内容链接', '创作者账号名', 'Followers', 'Views', 'Impressions', 'Peak Viewers', 'VOD Views', '来源', '操作'].map((header) => (
                 <th key={header} className="border-b border-slate-200 px-5 py-3 font-bold">
                   {header}
                 </th>
@@ -71,6 +71,7 @@ export function ContentTable({ contents, isScanning, onExport, onScan, onDeleteC
                     {item.platform}
                   </span>
                 </td>
+                <td className="whitespace-nowrap px-5 py-4 text-slate-500">{item.discoveredAt || '—'}</td>
                 <td className="max-w-[420px] px-5 py-4 font-medium leading-6 text-slate-900" style={{ ...clampStyles, WebkitLineClamp: 3 }}>
                   {item.title || '—'}
                 </td>

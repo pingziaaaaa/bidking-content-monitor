@@ -50,6 +50,16 @@ type ScanResult = {
   totalFound: number;
   filteredOutCount: number;
   message: string;
+  debug?: {
+    requestUrl: string;
+    query: string;
+    status: number;
+    errorMessage?: string;
+    rateLimitLimit?: string;
+    rateLimitRemaining?: string;
+    rateLimitReset?: string;
+    rawFoundCount: number;
+  };
 };
 
 function normalizeKeyword(raw: string) {
@@ -82,7 +92,7 @@ function matchesBidkingKeyword(keyword: string, text: string) {
   );
 }
 
-async function fetchXSearch(keyword: string, bearerToken: string, startTime: string): Promise<XSearchResponse> {
+async function fetchXSearch(keyword: string, bearerToken: string, startTime: string): Promise<{ data: XSearchResponse; debug: any }> {
   const searchQuery = keyword.trim().startsWith('#')
     ? `#${normalizeKeyword(keyword)}`
     : normalizeKeyword(keyword).includes(' ')
@@ -98,18 +108,67 @@ async function fetchXSearch(keyword: string, bearerToken: string, startTime: str
     'user.fields': 'username,name,public_metrics',
   });
 
-  const response = await fetch(`https://api.x.com/2/tweets/search/recent?${params}`, {
+  const url = `https://api.x.com/2/tweets/search/recent?${params}`;
+  const debug = {
+    requestUrl: url,
+    query: searchQuery,
+    status: 0,
+    errorMessage: '',
+    rateLimitLimit: '',
+    rateLimitRemaining: '',
+    rateLimitReset: '',
+  };
+
+  const response = await fetch(url, {
     headers: {
       'Authorization': `Bearer ${bearerToken}`,
       'Content-Type': 'application/json',
     },
   });
 
+  debug.status = response.status;
+  debug.rateLimitLimit = response.headers.get('x-rate-limit-limit') || '';
+  debug.rateLimitRemaining = response.headers.get('x-rate-limit-remaining') || '';
+  debug.rateLimitReset = response.headers.get('x-rate-limit-reset') || '';
+
   if (!response.ok) {
-    throw new Error(`X API error: ${response.status} ${response.statusText}`);
+    let errorMessage = `X API error: ${response.status} ${response.statusText}`;
+    let userFriendlyMessage = '';
+
+    if (response.status === 403) {
+      userFriendlyMessage = 'X API 访问被拒绝，请检查 Bearer Token 权限';
+    } else if (response.status === 429) {
+      userFriendlyMessage = 'X API 请求频率超限，请稍后再试';
+    } else if (response.status === 401) {
+      userFriendlyMessage = 'X API 认证失败，请检查 Bearer Token';
+    } else if (response.status === 402) {
+      userFriendlyMessage = 'X API 需要付费订阅';
+    }
+
+    try {
+      const errorData = await response.json();
+      if (errorData.errors && errorData.errors.length > 0) {
+        errorMessage += ` - ${errorData.errors[0].message}`;
+        if (!userFriendlyMessage) {
+          const errorDetail = errorData.errors[0].message.toLowerCase();
+          if (errorDetail.includes('payment required') || errorDetail.includes('insufficient access')) {
+            userFriendlyMessage = 'X API 需要付费订阅或权限不足';
+          } else if (errorDetail.includes('unsupported authentication')) {
+            userFriendlyMessage = 'X API 认证方式不支持';
+          }
+        }
+      }
+    } catch {
+      // Ignore JSON parse errors
+    }
+
+    debug.errorMessage = errorMessage;
+    const finalMessage = userFriendlyMessage || errorMessage;
+    throw new Error(finalMessage);
   }
 
-  return response.json();
+  const data = await response.json();
+  return { data, debug };
 }
 
 export async function POST(request: NextRequest) {
@@ -183,11 +242,15 @@ export async function POST(request: NextRequest) {
     let insertedCount = 0;
     let updatedCount = 0;
     let filteredOutCount = 0;
+    let debugInfo: any = null;
 
     for (const keyword of keywords) {
       try {
         // 搜索推文
-        const searchResponse = await fetchXSearch(keyword, bearerToken, startTime);
+        const { data: searchResponse, debug } = await fetchXSearch(keyword, bearerToken, startTime);
+        debugInfo = debug;
+        debugInfo.rawFoundCount = searchResponse.data.length;
+
         if (searchResponse.data.length === 0) continue;
 
         totalFound += searchResponse.data.length;
@@ -276,9 +339,27 @@ export async function POST(request: NextRequest) {
       totalFound,
       filteredOutCount,
       message: `扫描完成，共找到 ${totalFound} 个推文，过滤掉 ${filteredOutCount} 个无关结果，新增 ${insertedCount} 个，更新 ${updatedCount} 个`,
+      debug: debugInfo,
     } satisfies ScanResult);
   } catch (error) {
     const message = error instanceof Error ? error.message : '扫描失败';
+    let debugInfo: any = null;
+
+    // 尝试从错误中提取 debug 信息
+    if (error instanceof Error && error.message.includes('X API error')) {
+      // 如果是 API 错误，debug 信息已经在 fetchXSearch 中设置
+      debugInfo = {
+        requestUrl: '',
+        query: '',
+        status: 0,
+        errorMessage: message,
+        rateLimitLimit: '',
+        rateLimitRemaining: '',
+        rateLimitReset: '',
+        rawFoundCount: 0,
+      };
+    }
+
     return NextResponse.json({
       ok: false,
       scannedKeywords: 0,
@@ -287,6 +368,7 @@ export async function POST(request: NextRequest) {
       totalFound: 0,
       filteredOutCount: 0,
       message,
+      debug: debugInfo,
     } satisfies ScanResult, { status: 500 });
   }
 }

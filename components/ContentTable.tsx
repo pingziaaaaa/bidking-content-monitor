@@ -1,5 +1,5 @@
 import type { ContentItem } from '@/lib/mock-data';
-import { getPrimaryMetric, platformStyles } from '@/components/utils';
+import { formatOptionalNumber, platformStyles } from '@/components/utils';
 
 type ContentTableProps = {
   contents: ContentItem[];
@@ -37,10 +37,10 @@ export function ContentTable({ contents, isScanning, onExport, onScan }: Content
       </div>
 
       <div className="overflow-x-auto">
-        <table className="min-w-[980px] w-full border-separate border-spacing-0 text-left text-sm">
+        <table className="min-w-[1280px] w-full border-separate border-spacing-0 text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             <tr>
-              {['平台', '标题/正文', '链接', '创作者', '核心指标', '来源', '发现时间'].map((header) => (
+              {['平台', '标题/正文', '内容链接', '创作者账号名', 'Followers', 'Views', 'Impressions', 'Peak Viewers', 'VOD Views', '来源', '发现时间'].map((header) => (
                 <th key={header} className="border-b border-slate-200 px-5 py-3 font-bold">
                   {header}
                 </th>
@@ -56,13 +56,17 @@ export function ContentTable({ contents, isScanning, onExport, onScan }: Content
                   </span>
                 </td>
                 <td className="max-w-[300px] px-5 py-4 font-medium leading-6 text-slate-900">{item.title}</td>
-                <td className="px-5 py-4">
-                  <a className="text-blue-600 hover:text-blue-800 hover:underline" href={item.url}>
-                    打开链接
+                <td className="max-w-[260px] px-5 py-4">
+                  <a className="break-all text-blue-600 hover:text-blue-800 hover:underline" href={item.url} title={item.url}>
+                    {item.url}
                   </a>
                 </td>
                 <td className="px-5 py-4 text-slate-700">{item.creator}</td>
-                <td className="px-5 py-4 font-semibold text-slate-950">{getPrimaryMetric(item)}</td>
+                <td className="whitespace-nowrap px-5 py-4 font-semibold text-slate-950">{formatOptionalNumber(item.metrics.followers)}</td>
+                <td className="whitespace-nowrap px-5 py-4 font-semibold text-slate-950">{formatOptionalNumber(item.metrics.views)}</td>
+                <td className="whitespace-nowrap px-5 py-4 font-semibold text-slate-950">{formatOptionalNumber(item.metrics.impressions)}</td>
+                <td className="whitespace-nowrap px-5 py-4 font-semibold text-slate-950">{formatOptionalNumber(item.metrics.peakViewers)}</td>
+                <td className="whitespace-nowrap px-5 py-4 font-semibold text-slate-950">{formatOptionalNumber(item.metrics.vodViews)}</td>
                 <td className="px-5 py-4">
                   <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">{item.source}</span>
                 </td>

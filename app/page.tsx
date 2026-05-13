@@ -8,7 +8,7 @@ import { PlatformFilter } from '@/components/PlatformFilter';
 import { SummaryBanner } from '@/components/SummaryBanner';
 import type { AccountItem, ContentItem, Platform, PlatformFilterValue } from '@/lib/mock-data';
 import { accounts as initialAccounts, contents as initialContents, keywords as initialKeywords, latestScanTime as initialLatestScanTime } from '@/lib/mock-data';
-import { getPrimaryMetric } from '@/components/utils';
+import { formatOptionalNumber } from '@/components/utils';
 
 type NewAccountInput = {
   platform: Platform;
@@ -64,8 +64,20 @@ function escapeCsvCell(value: string) {
 }
 
 function buildContentCsv(items: ContentItem[]) {
-  const headers = ['平台', '标题/正文', '链接', '创作者', '核心指标', '来源', '发现时间'];
-  const rows = items.map((item) => [item.platform, item.title, item.url, item.creator, getPrimaryMetric(item), item.source, item.discoveredAt]);
+  const headers = ['平台', '标题/正文', '内容链接', '创作者账号名', 'Followers', 'Views', 'Impressions', 'Peak Viewers', 'VOD Views', '来源', '发现时间'];
+  const rows = items.map((item) => [
+    item.platform,
+    item.title,
+    item.url,
+    item.creator,
+    formatOptionalNumber(item.metrics.followers),
+    formatOptionalNumber(item.metrics.views),
+    formatOptionalNumber(item.metrics.impressions),
+    formatOptionalNumber(item.metrics.peakViewers),
+    formatOptionalNumber(item.metrics.vodViews),
+    item.source,
+    item.discoveredAt,
+  ]);
 
   return [headers, ...rows].map((row) => row.map(escapeCsvCell).join(',')).join('\n');
 }

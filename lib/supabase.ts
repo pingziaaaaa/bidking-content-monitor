@@ -61,6 +61,7 @@ export type Database = {
           creator: string;
           source: ContentItem['source'];
           discovered_at: string;
+          followers: number | null;
           views: number | null;
           impressions: number | null;
           engagements: number | null;
@@ -76,6 +77,7 @@ export type Database = {
           creator: string;
           source: ContentItem['source'];
           discovered_at: string;
+          followers?: number | null;
           views?: number | null;
           impressions?: number | null;
           engagements?: number | null;
@@ -91,6 +93,7 @@ export type Database = {
           creator?: string;
           source?: ContentItem['source'];
           discovered_at?: string;
+          followers?: number | null;
           views?: number | null;
           impressions?: number | null;
           engagements?: number | null;
@@ -146,6 +149,7 @@ export function mapContentRowToItem(row: Database['public']['Tables']['content_i
     source: row.source,
     discoveredAt: row.discovered_at,
     metrics: {
+      followers: row.followers ?? undefined,
       views: row.views ?? undefined,
       impressions: row.impressions ?? undefined,
       engagements: row.engagements ?? undefined,

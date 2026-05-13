@@ -9,6 +9,7 @@ export type ContentItem = {
   source: '关键词匹配' | '指定账号';
   discoveredAt: string;
   metrics: {
+    followers?: number;
     views?: number;
     impressions?: number;
     engagements?: number;
@@ -39,7 +40,7 @@ export const contents: ContentItem[] = [
     creator: 'Global Game Desk',
     source: '关键词匹配',
     discoveredAt: '2026-05-11 18:42',
-    metrics: { views: 48200, engagements: 3210 },
+    metrics: { followers: 128000, views: 48200, engagements: 3210 },
   },
   {
     id: 'x-001',
@@ -49,7 +50,7 @@ export const contents: ContentItem[] = [
     creator: '@gamepulse',
     source: '指定账号',
     discoveredAt: '2026-05-11 17:55',
-    metrics: { impressions: 126000, engagements: 4380 },
+    metrics: { followers: 84200, impressions: 126000, engagements: 4380 },
   },
   {
     id: 'tw-001',
@@ -59,7 +60,7 @@ export const contents: ContentItem[] = [
     creator: 'BidArenaTV',
     source: '指定账号',
     discoveredAt: '2026-05-11 16:18',
-    metrics: { peakViewers: 1840, vodViews: 9200 },
+    metrics: { followers: 56000, peakViewers: 1840, vodViews: 9200 },
   },
   {
     id: 'yt-002',
@@ -69,7 +70,7 @@ export const contents: ContentItem[] = [
     creator: 'Auction Quest Clips',
     source: '关键词匹配',
     discoveredAt: '2026-05-11 14:26',
-    metrics: { views: 15800 },
+    metrics: { followers: 34700, views: 15800 },
   },
   {
     id: 'x-002',
@@ -79,7 +80,7 @@ export const contents: ContentItem[] = [
     creator: '@esportswatch',
     source: '关键词匹配',
     discoveredAt: '2026-05-11 11:08',
-    metrics: { engagements: 980 },
+    metrics: { followers: 21900, engagements: 980 },
   },
   {
     id: 'tw-002',
@@ -89,7 +90,7 @@ export const contents: ContentItem[] = [
     creator: 'MercadoPlay',
     source: '关键词匹配',
     discoveredAt: '2026-05-10 22:37',
-    metrics: { peakViewers: 760, vodViews: 4100 },
+    metrics: { followers: 18800, peakViewers: 760, vodViews: 4100 },
   },
 ];
 

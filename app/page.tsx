@@ -211,10 +211,27 @@ export default function Home() {
 
         if (!xResponse.ok) {
           const errorData = await xResponse.json();
-          results.push(`X: ${errorData.message}`);
+          let xMessage = `X: ${errorData.message}`;
+          if (errorData.debug) {
+            xMessage += ` | Query: ${errorData.debug.query} | Status: ${errorData.debug.status} | Raw: ${errorData.debug.rawFoundCount}`;
+            if (errorData.debug.errorMessage) {
+              xMessage += ` | Error: ${errorData.debug.errorMessage}`;
+            }
+            if (errorData.debug.rateLimitRemaining) {
+              xMessage += ` | Rate: ${errorData.debug.rateLimitRemaining}/${errorData.debug.rateLimitLimit}`;
+            }
+          }
+          results.push(xMessage);
         } else {
           const result = await xResponse.json();
-          results.push(`X: ${result.message}`);
+          let xMessage = `X: ${result.message}`;
+          if (result.debug) {
+            xMessage += ` | Query: ${result.debug.query} | Status: ${result.debug.status} | Raw: ${result.debug.rawFoundCount} | Filtered: ${result.filteredOutCount}`;
+            if (result.debug.rateLimitRemaining) {
+              xMessage += ` | Rate: ${result.debug.rateLimitRemaining}/${result.debug.rateLimitLimit}`;
+            }
+          }
+          results.push(xMessage);
         }
       } catch (error) {
         results.push(`X: ${error instanceof Error ? error.message : '扫描失败'}`);

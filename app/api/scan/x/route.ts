@@ -93,11 +93,8 @@ function matchesBidkingKeyword(keyword: string, text: string) {
 }
 
 async function fetchXSearch(keyword: string, bearerToken: string, startTime: string): Promise<{ data: XSearchResponse; debug: any }> {
-  const searchQuery = keyword.trim().startsWith('#')
-    ? `#${normalizeKeyword(keyword)}`
-    : normalizeKeyword(keyword).includes(' ')
-    ? `"${normalizeKeyword(keyword)}"`
-    : normalizeKeyword(keyword);
+  // 使用更稳的查询组合，忽略原始关键词，直接搜索 BIDKING 相关
+  const searchQuery = '(bidking OR "bid king" OR #BidKing OR #BIDKING) -is:retweet';
 
   const params = new URLSearchParams({
     query: searchQuery,
@@ -151,12 +148,16 @@ async function fetchXSearch(keyword: string, bearerToken: string, startTime: str
         errorMessage += ` - ${errorData.errors[0].message}`;
         if (!userFriendlyMessage) {
           const errorDetail = errorData.errors[0].message.toLowerCase();
-          if (errorDetail.includes('payment required') || errorDetail.includes('insufficient access')) {
+          if (errorDetail.includes('payment required') || errorDetail.includes('insufficient access') ||
+              errorDetail.includes('credit') || errorDetail.includes('billing')) {
             userFriendlyMessage = 'X API 需要付费订阅或权限不足';
           } else if (errorDetail.includes('unsupported authentication')) {
             userFriendlyMessage = 'X API 认证方式不支持';
           }
         }
+      }
+      if (errorData.detail) {
+        errorMessage += ` - ${errorData.detail}`;
       }
     } catch {
       // Ignore JSON parse errors

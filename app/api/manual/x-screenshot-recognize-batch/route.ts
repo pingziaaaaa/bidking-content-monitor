@@ -22,10 +22,21 @@ type RecognizeResult = {
   warning: string | null;
 };
 
-type VisionResponse = {
-  responses: Array<{
-    textAnnotations?: Array<{
-      description?: string;
+type GeminiResponse = {
+  output?: Array<{
+    content?: Array<{
+      text?: string;
+      parts?: Array<{
+        text?: string;
+      }>;
+    }>;
+  }>;
+  candidates?: Array<{
+    content?: Array<{
+      text?: string;
+      parts?: Array<{
+        text?: string;
+      }>;
     }>;
   }>;
 };
@@ -41,7 +52,6 @@ function parseNumberValue(value: unknown): number | null {
   }
 
   const normalized = raw
-    .replace(/，/g, ',')
     .replace(/，/g, ',')
     .replace(/\s+/g, '')
     .replace(/K$/i, '000')
@@ -122,10 +132,15 @@ function parseFollowers(text: string): number | null {
 }
 
 function extractTitle(text: string): string {
-  // 排除常见 UI 文案
   const excludePatterns = [
     /Home/i,
     /Explore/i,
+    /Notifications/i,
+    /Follow/i,
+    /Chat/i,
+    /Grok/i,
+    /Bookmarks/i,
+    /Creator Studio/i,
     /Post/i,
     /Reply/i,
     /Show translation/i,
@@ -135,7 +150,6 @@ function extractTitle(text: string): string {
     /Likes?/i,
     /Retweets?/i,
     /Shares?/i,
-    /Bookmarks?/i,
     /·/g,
     /\d{1,2}:\d{2}\s*(?:AM|PM)/i,
     /[A-Za-z]{3}\s+\d{1,2},\s*\d{4}/i,
@@ -146,10 +160,8 @@ function extractTitle(text: string): string {
     cleaned = cleaned.replace(pattern, '');
   }
 
-  // 移除多余空格和换行
   cleaned = cleaned.replace(/\s+/g, ' ').trim();
 
-  // 如果太短或太长，可能是误识别
   if (cleaned.length < 5 || cleaned.length > 500) {
     return '待补充';
   }
@@ -157,85 +169,160 @@ function extractTitle(text: string): string {
   return cleaned || '待补充';
 }
 
-async function performOCR(base64: string): Promise<string> {
-  const apiKey = String(process.env.GOOGLE_VISION_API_KEY || '').trim();
-  if (!apiKey) {
-    throw new Error('未配置 GOOGLE_VISION_API_KEY，无法识别截图');
+function parseJsonFromText(rawText: string): unknown | null {
+  const trimmed = rawText.trim();
+  const jsonMatch = trimmed.match(/```json\s*([\s\S]*?)\s*```/i);
+  const candidate = jsonMatch ? jsonMatch[1].trim() : trimmed;
+
+  if (!candidate) {
+    return null;
   }
 
-  // 移除 data:image 前缀
-  const cleanBase64 = base64.replace(/^data:image\/[a-z]+;base64,/, '');
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    return null;
+  }
+}
 
-  const requestBody = {
-    requests: [
-      {
-        image: {
-          content: cleanBase64,
-        },
-        features: [
-          {
-            type: 'TEXT_DETECTION',
-          },
-        ],
-      },
-    ],
-  };
-
-  const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(requestBody),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Vision OCR 识别失败：${response.status} ${body}`);
+function extractTextFromGeminiResponse(response: GeminiResponse | unknown): string {
+  if (!response || typeof response !== 'object') {
+    return '';
   }
 
-  const responseData = (await response.json()) as VisionResponse;
-  const text = responseData.responses?.[0]?.textAnnotations?.[0]?.description?.trim();
-  if (!text) {
-    throw new Error('Vision OCR 未返回有效文本');
+  const entries = Array.isArray((response as any).output)
+    ? (response as any).output
+    : Array.isArray((response as any).candidates)
+    ? (response as any).candidates
+    : [];
+
+  return entries
+    .flatMap((item: any) => item.content ?? [])
+    .flatMap((content: any) => {
+      if (typeof content.text === 'string') {
+        return [content.text];
+      }
+      if (Array.isArray(content.parts)) {
+        return content.parts.map((part: any) => part.text ?? '');
+      }
+      return [];
+    })
+    .join('\n');
+}
+
+function normalizeBase64DataUrl(dataUrl: string): string {
+  return dataUrl.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, '');
+}
+
+function detectMimeType(dataUrl: string): string {
+  const match = dataUrl.match(/^data:image\/(png|jpeg|jpg|webp);base64,/i);
+  if (!match) {
+    return 'image/png';
   }
 
-  return text;
+  const type = match[1].toLowerCase();
+  return type === 'jpg' ? 'image/jpeg' : `image/${type}`;
+}
+
+function buildPrompt(profileIncluded: boolean): string {
+  const lines = [
+    '你是一个结构化信息抽取助手。请从 X 帖子截图和可选的主页截图中提取字段。',
+    '只输出一个 JSON 对象，不要添加解释性文字、Markdown、代码块或额外文本。',
+    '如果截图中包含浏览器地址栏，请识别 X 链接和 tweet id；如果没有地址栏，则 url 和 platform_content_id 应为 null。',
+    '请返回以下字段：',
+    '{',
+    '  "url": null 或 "https://x.com/{username}/status/{tweetId}",',
+    '  "platform_content_id": null 或 "{tweetId}",',
+    '  "username": null 或 "{username}",',
+    '  "name": null 或 "作者名称",',
+    '  "title": null 或 "帖子正文/标题",',
+    '  "published_at": null 或 "发布时间文本",',
+    '  "followers": null 或 数字,',
+    '  "impressions": null 或 数字',
+    '}',
+  ];
+
+  if (profileIncluded) {
+    lines.push('如果提供了主页截图，请用于识别作者粉丝数 followers。');
+  }
+
+  return lines.join(' ');
 }
 
 async function recognizeItem(postImageBase64: string, profileImageBase64?: string): Promise<Record<string, unknown>> {
-  const postText = await performOCR(postImageBase64);
-  let profileText = '';
-  if (profileImageBase64) {
-    profileText = await performOCR(profileImageBase64);
+  const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
+  if (!apiKey) {
+    throw new Error('未配置 GEMINI_API_KEY，无法识别截图');
   }
 
-  const fullText = `${postText}\n${profileText}`;
+  const postImageData = normalizeBase64DataUrl(postImageBase64);
+  const postMimeType = detectMimeType(postImageBase64);
 
-  const linkInfo = parseXLink(fullText);
-  const username = parseUsername(fullText);
-  const publishedAt = parsePublishedAt(postText);
-  const impressions = parseImpressions(postText);
-  const followers = profileImageBase64 ? parseFollowers(profileText) : null;
-  const title = extractTitle(postText);
+  const parts: Array<Record<string, unknown>> = [
+    {
+      inline_data: {
+        mime_type: postMimeType,
+        data: postImageData,
+      },
+    },
+  ];
 
-  return {
-    url: linkInfo?.normalizedUrl || null,
-    platform_content_id: linkInfo?.tweetId || null,
-    username,
-    name: null,
-    title,
-    published_at: publishedAt,
-    followers,
-    impressions,
+  if (profileImageBase64) {
+    const profileImageData = normalizeBase64DataUrl(profileImageBase64);
+    const profileMimeType = detectMimeType(profileImageBase64);
+    parts.push({
+      inline_data: {
+        mime_type: profileMimeType,
+        data: profileImageData,
+      },
+    });
+  }
+
+  parts.push({ text: buildPrompt(Boolean(profileImageBase64)) });
+
+  const requestBody = {
+    contents: [
+      {
+        parts,
+      },
+    ],
+    generationConfig: {
+      response_mime_type: 'application/json',
+    },
   };
+
+  const response = await fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify(requestBody),
+    },
+  );
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Gemini 识别失败：${response.status} ${body}`);
+  }
+
+  const responseData = (await response.json()) as GeminiResponse;
+  const text = extractTextFromGeminiResponse(responseData);
+  const parsed = parseJsonFromText(text);
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('Gemini 未返回有效识别结果');
+  }
+
+  return parsed as Record<string, unknown>;
 }
 
 export async function POST(request: NextRequest) {
-  const visionKey = String(process.env.GOOGLE_VISION_API_KEY || '').trim();
-  if (!visionKey) {
+  const geminiKey = String(process.env.GEMINI_API_KEY || '').trim();
+  if (!geminiKey) {
     return NextResponse.json(
-      { ok: false, message: '未配置 GOOGLE_VISION_API_KEY，无法识别截图' },
+      { ok: false, message: '未配置 GEMINI_API_KEY，无法识别截图' },
       { status: 500 },
     );
   }

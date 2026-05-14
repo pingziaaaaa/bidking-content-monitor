@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { createServerSupabaseClient, isSupabaseConfigured } from '@/lib/supabase';
 
 type RecognizeRequestItem = {
   id: string;
@@ -210,6 +211,142 @@ function extractTextFromGeminiResponse(response: GeminiResponse | unknown): stri
     .join('\n');
 }
 
+
+function normalizeUsernameValue(value: string | null | undefined): string | null {
+  if (!value) return null;
+
+  const cleaned = value
+    .trim()
+    .replace(/^@+/, '')
+    .replace(/^https?:\/\/(?:www\.)?(?:x\.com|twitter\.com)\//i, '')
+    .split(/[/?#]/)[0]
+    .trim()
+    .toLowerCase();
+
+  if (!/^[a-z0-9_]{2,30}$/i.test(cleaned)) {
+    return null;
+  }
+
+  return cleaned;
+}
+
+function getUsernameFromRecognizeResult(result: RecognizeResult): string | null {
+  const username = normalizeUsernameValue(result.username);
+  if (username) return username;
+
+  const creator = normalizeUsernameValue(result.creator);
+  if (creator) return creator;
+
+  if (result.url) {
+    return normalizeUsernameValue(parseXLink(result.url)?.username ?? null);
+  }
+
+  return null;
+}
+
+function appendWarning(warning: string | null, extra: string) {
+  return warning ? `${warning}；${extra}` : extra;
+}
+
+function buildBatchFollowersCache(results: RecognizeResult[]) {
+  const cache = new Map<string, number>();
+
+  for (const result of results) {
+    const username = getUsernameFromRecognizeResult(result);
+
+    if (username && typeof result.followers === 'number' && result.followers > 0) {
+      cache.set(username, result.followers);
+    }
+  }
+
+  return cache;
+}
+
+async function fetchHistoricalFollowersFromSupabase(usernames: string[]) {
+  const cache = new Map<string, number>();
+
+  if (!isSupabaseConfigured() || usernames.length === 0) {
+    return cache;
+  }
+
+  const supabase = createServerSupabaseClient() as any;
+
+  if (!supabase) {
+    return cache;
+  }
+
+  const uniqueUsernames = Array.from(new Set(usernames.map((username) => username.toLowerCase())));
+
+  for (const username of uniqueUsernames) {
+    const creatorCandidates = [`@${username}`, username];
+
+    for (const creator of creatorCandidates) {
+      const response = await supabase
+        .from('content_items')
+        .select('followers, discovered_at, created_at')
+        .eq('platform', 'X')
+        .eq('creator', creator)
+        .not('followers', 'is', null)
+        .order('discovered_at', { ascending: false })
+        .limit(1);
+
+      if (!response.error && Array.isArray(response.data) && response.data[0]?.followers) {
+        const followers = Number(response.data[0].followers);
+
+        if (Number.isFinite(followers) && followers > 0) {
+          cache.set(username, followers);
+          break;
+        }
+      }
+    }
+  }
+
+  return cache;
+}
+
+async function completeFollowersFromBatchAndSupabase(results: RecognizeResult[]) {
+  const batchCache = buildBatchFollowersCache(results);
+  const missingUsernames = results
+    .filter((result) => result.followers === null || result.followers === undefined)
+    .map(getUsernameFromRecognizeResult)
+    .filter((username): username is string => Boolean(username));
+
+  const historicalCache = await fetchHistoricalFollowersFromSupabase(missingUsernames);
+
+  return results.map((result) => {
+    if (typeof result.followers === 'number' && result.followers > 0) {
+      return result;
+    }
+
+    const username = getUsernameFromRecognizeResult(result);
+
+    if (!username) {
+      return result;
+    }
+
+    const batchFollowers = batchCache.get(username);
+    if (batchFollowers) {
+      return {
+        ...result,
+        followers: batchFollowers,
+        warning: appendWarning(result.warning, 'Followers 已复用本次批量中的同账号主页截图。'),
+      };
+    }
+
+    const historicalFollowers = historicalCache.get(username);
+    if (historicalFollowers) {
+      return {
+        ...result,
+        followers: historicalFollowers,
+        warning: appendWarning(result.warning, 'Followers 已从 Supabase 历史数据复用。'),
+      };
+    }
+
+    return result;
+  });
+}
+
+
 function normalizeBase64DataUrl(dataUrl: string): string {
   return dataUrl.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, '');
 }
@@ -413,5 +550,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, results });
+  const completedResults = await completeFollowersFromBatchAndSupabase(results);
+
+  return NextResponse.json({ ok: true, results: completedResults });
 }

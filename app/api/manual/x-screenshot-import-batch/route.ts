@@ -45,6 +45,61 @@ function parseXLink(rawLink: string): { username: string; tweetId: string; norma
   }
 }
 
+
+function normalizeUsernameValue(value: string | null | undefined): string | null {
+  if (!value) return null;
+
+  const cleaned = value
+    .trim()
+    .replace(/^@+/, '')
+    .replace(/^https?:\/\/(?:www\.)?(?:x\.com|twitter\.com)\//i, '')
+    .split(/[/?#]/)[0]
+    .trim()
+    .toLowerCase();
+
+  if (!/^[a-z0-9_]{2,30}$/i.test(cleaned)) {
+    return null;
+  }
+
+  return cleaned;
+}
+
+async function fetchHistoricalFollowers(
+  supabase: any,
+  username: string | null,
+  creator: string,
+) {
+  const normalizedUsername = username || normalizeUsernameValue(creator);
+
+  if (!normalizedUsername) {
+    return null;
+  }
+
+  const creatorCandidates = [`@${normalizedUsername}`, normalizedUsername];
+
+  for (const candidate of creatorCandidates) {
+    const response = await supabase
+      .from('content_items')
+      .select('followers, discovered_at, created_at')
+      .eq('platform', 'X')
+      .eq('creator', candidate)
+      .not('followers', 'is', null)
+      .order('discovered_at', { ascending: false })
+      .limit(1);
+
+    if (!response.error && Array.isArray(response.data) && response.data[0]?.followers) {
+      const followers = Number(response.data[0].followers);
+
+      if (Number.isFinite(followers) && followers > 0) {
+        return followers;
+      }
+    }
+  }
+
+  return null;
+}
+
+
 function parseDateString(value: string | null): string {
   if (!value) {
     return new Date().toISOString();
@@ -99,6 +154,8 @@ export async function POST(request: NextRequest) {
     const title = item.title?.trim() || item.name || creator || '待补充';
     const source = url ? '截图识别' : '截图识别缺链接';
     const discoveredAt = parseDateString(item.published_at);
+    const normalizedUsername = normalizeUsernameValue(item.username) || normalizeUsernameValue(linkInfo?.username ?? null) || normalizeUsernameValue(creator);
+    const followers = item.followers ?? await fetchHistoricalFollowers(supabase, normalizedUsername, creator);
 
     if (platformContentId) {
       const existingResponse = await supabase
@@ -123,7 +180,7 @@ export async function POST(request: NextRequest) {
         creator,
         source,
         discovered_at: discoveredAt,
-        followers: item.followers ?? null,
+        followers: followers ?? null,
         impressions: item.impressions ?? null,
       };
 
@@ -147,7 +204,7 @@ export async function POST(request: NextRequest) {
         creator,
         source,
         discovered_at: discoveredAt,
-        followers: item.followers ?? null,
+        followers: followers ?? null,
         impressions: item.impressions ?? null,
         views: null,
         engagements: null,
@@ -174,7 +231,7 @@ export async function POST(request: NextRequest) {
       creator,
       source,
       discovered_at: discoveredAt,
-      followers: item.followers ?? null,
+      followers: followers ?? null,
       impressions: item.impressions ?? null,
       views: null,
       engagements: null,

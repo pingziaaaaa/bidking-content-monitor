@@ -61,6 +61,41 @@ function PasteArea({ label, value, onPaste, onClear, required }: {
   const [isFocused, setIsFocused] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  async function compressImageFile(file: File) {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('图片读取失败'));
+      reader.readAsDataURL(file);
+    });
+
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('图片加载失败'));
+      img.src = dataUrl;
+    });
+
+    const maxWidth = 1400;
+    const scale = Math.min(1, maxWidth / image.width);
+    const width = Math.round(image.width * scale);
+    const height = Math.round(image.height * scale);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext('2d');
+
+    if (!context) {
+      return dataUrl;
+    }
+
+    context.drawImage(image, 0, 0, width, height);
+
+    return canvas.toDataURL('image/jpeg', 0.78);
+  }
+
   const handlePaste = async (event: React.ClipboardEvent) => {
     event.preventDefault();
     const items = event.clipboardData.items;
@@ -69,27 +104,19 @@ function PasteArea({ label, value, onPaste, onClear, required }: {
       if (item.type.indexOf('image') !== -1) {
         const file = item.getAsFile();
         if (file) {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const result = reader.result as string;
-            onPaste(result);
-          };
-          reader.readAsDataURL(file);
+          const result = await compressImageFile(file);
+          onPaste(result);
         }
         break;
       }
     }
   };
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        onPaste(result);
-      };
-      reader.readAsDataURL(file);
+      const result = await compressImageFile(file);
+      onPaste(result);
     }
   };
 
@@ -574,7 +601,18 @@ export default function Home() {
         body: JSON.stringify(requestBody),
       });
 
-      const result = await response.json();
+      const responseText = await response.text();
+      let result: any = null;
+
+      try {
+        result = JSON.parse(responseText);
+      } catch {
+        throw new Error(
+          response.status === 413 || responseText.includes('Request Entity Too Large')
+            ? '截图体积过大，请减少单次上传数量，或压缩截图后再试。'
+            : `识别接口返回异常：${responseText.slice(0, 120)}`
+        );
+      }
 
       if (!response.ok || !result.ok) {
         throw new Error(result.message || '识别失败，请稍后重试');

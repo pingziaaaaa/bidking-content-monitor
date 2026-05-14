@@ -341,21 +341,40 @@ async function parseChannelsFromMostWatched(html: string, days: number, maxChann
     `https://sullygnome.com/api/tables/gametables/getgamechannels/` +
     `${pageInfo.range}/${pageInfo.gameId}/${gameName}/000/0/3/desc/0/${length}`;
 
-  const response = await fetch(apiUrl, {
-    method: 'GET',
-    headers: {
-      'User-Agent': 'Mozilla/5.0',
-      Accept: 'application/json',
-      Timecode: pageInfo.timecode,
-    },
-  });
+  let json: any = null;
+  let lastStatus: number | null = null;
+  let lastBody = '';
 
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`SullyGnome game channel table fetch failed: ${response.status} ${body.slice(0, 500)}`);
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const response = await fetch(apiUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        Accept: 'application/json',
+        Timecode: pageInfo.timecode,
+      },
+      cache: 'no-store',
+    });
+
+    if (response.ok) {
+      json = await response.json();
+      break;
+    }
+
+    lastStatus = response.status;
+    lastBody = await response.text();
+
+    if ([429, 500, 502, 503, 504].includes(response.status) && attempt < 4) {
+      await new Promise((resolve) => setTimeout(resolve, attempt * 1500));
+      continue;
+    }
+
+    throw new Error(`SullyGnome 频道列表接口暂时不可用，状态码 ${response.status}，请稍后重试。`);
   }
 
-  const json = await response.json();
+  if (!json) {
+    throw new Error(`SullyGnome 频道列表接口连续重试失败，最后状态码 ${lastStatus ?? 'unknown'}。${lastBody ? lastBody.slice(0, 120) : ''}`);
+  }
   const rows = Array.isArray(json?.data) ? json.data : [];
   const seeds = new Map<string, ChannelSeed>();
 

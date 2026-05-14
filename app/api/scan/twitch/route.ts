@@ -254,137 +254,121 @@ async function fetchHtmlWithRetry(url: string, retries = 3): Promise<{ status: n
   throw lastError;
 }
 
-function parseChannelsFromMostWatched(html: string): ChannelSeed[] {
-  const seeds = new Map<string, ChannelSeed>();
-  const decodedHtml = decodeEntities(html);
-  const pageText = stripHtml(decodedHtml);
+function extractSullyPageInfo(html: string): {
+  range: string;
+  gameId: string;
+  gameName: string;
+  timecode: string;
+} | null {
+  const match = html.match(/var\s+PageInfo\s*=\s*(\{[\s\S]*?\});/);
 
-  function isBadLogin(login: string) {
-    return /^(home|channels|games|teams|search|milestones|articles|about|patreon|utc|taiwan|brazil|mexico|japan|japanese|english|spanish|korean|chinese|summary|compare|more|csv|excel)$/i.test(login);
+  if (!match?.[1]) {
+    return null;
   }
 
-  function cleanDisplayName(displayNameRaw: string | null, login: string): string | null {
-    if (!displayNameRaw) return null;
+  try {
+    const pageInfo = JSON.parse(match[1]);
+    const range = String(pageInfo?.rangeInfo?.range ?? pageInfo?.dayRange ?? '3');
+    const gameId = String(pageInfo?.id ?? '');
+    const gameName = String(pageInfo?.name ?? 'Bid King');
+    const timecode = String(pageInfo?.timecode ?? '');
 
-    let displayName = stripHtml(displayNameRaw)
-      .replace(/\s+/g, ' ')
-      .replace(new RegExp(`\\(${escapeRegExp(login)}\\)`, 'i'), '')
-      .trim();
-
-    // 去掉可能粘上的表头/排名前缀。
-    displayName = displayName
-      .replace(/^.*?\bChannel\s+/i, '')
-      .replace(/^.*?\bLanguage\s+/i, '')
-      .replace(/^\d{1,3}\s+/, '')
-      .trim();
-
-    if (
-      !displayName ||
-      displayName.length > 80 ||
-      /SullyGnome|Twitch|stats|analysis|Channel|Watch time|Stream time|Peak viewers|Average viewers|Followers|Status|Language|Timezone|Currently showing/i.test(displayName)
-    ) {
+    if (!gameId || !timecode) {
       return null;
     }
 
-    return displayName;
+    return { range, gameId, gameName, timecode };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSullyChannelRow(row: any): ChannelSeed | null {
+  const rawLogin =
+    row?.url ??
+    row?.channelurl ??
+    row?.channel ??
+    row?.login ??
+    row?.name ??
+    '';
+
+  let login = String(rawLogin || '').trim();
+
+  if (!login && row?.twitchurl) {
+    const twitchMatch = String(row.twitchurl).match(/twitch\.tv\/([A-Za-z0-9_]{2,30})/i);
+    login = twitchMatch?.[1] ?? '';
   }
 
-  function addSeed(loginRaw: string, displayNameRaw: string | null, followersFallback: number | null = null) {
-    const login = decodeURIComponent(loginRaw || '').trim();
+  login = login
+    .replace(/^\/channel\//i, '')
+    .replace(/^https?:\/\/(?:www\.)?sullygnome\.com\/channel\//i, '')
+    .replace(/^https?:\/\/(?:www\.)?twitch\.tv\//i, '')
+    .split(/[/?#]/)[0]
+    .trim();
 
-    if (!login) return;
-    if (!/^[A-Za-z0-9_]{2,30}$/.test(login)) return;
-    if (isBadLogin(login)) return;
+  if (!/^[A-Za-z0-9_]{2,30}$/.test(login)) {
+    return null;
+  }
 
-    const displayName = cleanDisplayName(displayNameRaw, login);
-    const prev = seeds.get(login);
+  let displayName = stripHtml(String(row?.displayname ?? row?.channelname ?? row?.name ?? '')).trim();
 
-    if (!prev) {
-      seeds.set(login, {
-        login,
-        displayName,
-        followersFallback,
-      });
-    } else {
-      seeds.set(login, {
-        login,
-        displayName: prev.displayName || displayName,
-        followersFallback: prev.followersFallback ?? followersFallback,
-      });
+  if (!displayName || /SullyGnome|Twitch|Channel|Watch time|Peak viewers/i.test(displayName)) {
+    displayName = login;
+  }
+
+  const followersFallback = parseNumber(String(row?.followers ?? ''));
+
+  return {
+    login,
+    displayName,
+    followersFallback,
+  };
+}
+
+async function parseChannelsFromMostWatched(html: string, days: number, maxChannels: number): Promise<ChannelSeed[]> {
+  const pageInfo = extractSullyPageInfo(html);
+
+  if (!pageInfo) {
+    return [];
+  }
+
+  const length = Math.max(10, Math.min(maxChannels, 100));
+  const gameName = encodeURIComponent(pageInfo.gameName);
+
+  // DataTables 实际接口来自 SullyJS.Tables.CreateGameChannelTable：
+  // /api/tables/gametables/getgamechannels/{range}/{gameId}/{gameName}/{language}/{draw}/{sortColumn}/{sortDir}/{start}/{length}
+  const apiUrl =
+    `https://sullygnome.com/api/tables/gametables/getgamechannels/` +
+    `${pageInfo.range}/${pageInfo.gameId}/${gameName}/000/0/3/desc/0/${length}`;
+
+  const response = await fetch(apiUrl, {
+    method: 'GET',
+    headers: {
+      'User-Agent': 'Mozilla/5.0',
+      Accept: 'application/json',
+      Timecode: pageInfo.timecode,
+    },
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`SullyGnome game channel table fetch failed: ${response.status} ${body.slice(0, 500)}`);
+  }
+
+  const json = await response.json();
+  const rows = Array.isArray(json?.data) ? json.data : [];
+  const seeds = new Map<string, ChannelSeed>();
+
+  for (const row of rows) {
+    const seed = normalizeSullyChannelRow(row);
+    if (!seed) continue;
+
+    if (!seeds.has(seed.login)) {
+      seeds.set(seed.login, seed);
     }
   }
 
-  // 1. 优先从 HTML href 抓真实频道链接。
-  const hrefRegex =
-    /(?:href=["']|["'\s])(?:https?:\/\/(?:www\.)?sullygnome\.com)?\/channel\/([A-Za-z0-9_]{2,30})(?:\/\d+)?(?:[?#][^"'\s]*)?/gi;
-
-  let hrefMatch: RegExpExecArray | null;
-  while ((hrefMatch = hrefRegex.exec(decodedHtml))) {
-    addSeed(hrefMatch[1], null, null);
-  }
-
-  // 2. 从 a 标签里补 displayName。
-  const anchorRegex =
-    /<a\b[^>]*href=["'](?:https?:\/\/(?:www\.)?sullygnome\.com)?\/channel\/([A-Za-z0-9_]{2,30})(?:\/\d+)?(?:[?#][^"']*)?["'][^>]*>([\s\S]*?)<\/a>/gi;
-
-  let anchorMatch: RegExpExecArray | null;
-  while ((anchorMatch = anchorRegex.exec(decodedHtml))) {
-    addSeed(anchorMatch[1], anchorMatch[2], null);
-  }
-
-  // 3. 最稳兜底：从 Most watched 表格文本中解析 “显示名 (login) + 5个数字列”。
-  // 表格列通常是：
-  // Channel | Watch time | Stream time | Peak viewers | Average viewers | Followers | Status | Language
-  const tableStartCandidates = [
-    pageText.search(/Channel\s+Watch time/i),
-    pageText.search(/Watch time\s*\(hours\)/i),
-    pageText.search(/Most watched channels/i),
-  ].filter((index) => index >= 0);
-
-  const tableStart = tableStartCandidates.length ? Math.min(...tableStartCandidates) : 0;
-  const tableText = pageText.slice(tableStart, tableStart + 40000);
-
-  const parenRegex = /\(([A-Za-z0-9_]{2,30})\)/g;
-  let parenMatch: RegExpExecArray | null;
-
-  while ((parenMatch = parenRegex.exec(tableText))) {
-    const login = parenMatch[1];
-
-    if (isBadLogin(login)) continue;
-
-    const before = tableText.slice(Math.max(0, parenMatch.index - 160), parenMatch.index);
-    const after = tableText.slice(parenRegex.lastIndex, parenRegex.lastIndex + 220);
-
-    // login 后面必须很快出现至少 5 个数字列，否则认为不是频道表格行。
-    const firstNumberIndex = after.search(/-?[\d,]+(?:\.\d+)?/);
-    if (firstNumberIndex < 0 || firstNumberIndex > 80) continue;
-
-    const numberMatches = Array.from(after.matchAll(/-?[\d,]+(?:\.\d+)?/g)).map((m) => m[0]);
-    if (numberMatches.length < 5) continue;
-
-    const beforeClean = before.replace(/\s+/g, ' ').trim();
-
-    // 尽量截取排名后的频道名，例如 “1 ぺるるる” -> “ぺるるる”
-    const rankDisplayMatch = beforeClean.match(/(?:^|\s)\d{1,3}\s+(.{1,90})$/);
-    let displayName = rankDisplayMatch?.[1]?.trim() || beforeClean.slice(-80).trim();
-
-    displayName = displayName
-      .replace(/^.*?\bChannel\s+/i, '')
-      .replace(/^.*?\bLanguage\s+/i, '')
-      .replace(/^\d{1,3}\s+/, '')
-      .trim();
-
-    if (/SullyGnome|Twitch|stats|analysis|Channel|Watch time|Stream time|Peak viewers|Average viewers|Followers|Status|Language|Timezone|Currently showing/i.test(displayName)) {
-      displayName = '';
-    }
-
-    // 第5个数字列是 Followers fallback。
-    const followersFallback = parseNumber(numberMatches[4]);
-
-    addSeed(login, displayName || null, followersFallback);
-  }
-
-  return Array.from(seeds.values());
+  return Array.from(seeds.values()).slice(0, maxChannels);
 }
 
 async function fetchSullyChannel(login: string, days: number) {
@@ -638,7 +622,7 @@ export async function POST(request: Request) {
   try {
     const mostWatchedUrl = `https://sullygnome.com/game/bidking/${days}/watched`;
     const mostWatched = await fetchHtmlWithRetry(mostWatchedUrl, 3);
-    const channelSeeds = parseChannelsFromMostWatched(mostWatched.html).slice(0, maxChannels);
+    const channelSeeds = await parseChannelsFromMostWatched(mostWatched.html, days, maxChannels);
 
     if (channelSeeds.length === 0) {
       return NextResponse.json({

@@ -259,36 +259,44 @@ function parseChannelsFromMostWatched(html: string): ChannelSeed[] {
   const decodedHtml = decodeEntities(html);
   const pageText = stripHtml(decodedHtml);
 
+  function isBadLogin(login: string) {
+    return /^(home|channels|games|teams|search|milestones|articles|about|patreon|utc|taiwan|brazil|mexico|japan|japanese|english|spanish|korean|chinese|summary|compare|more|csv|excel)$/i.test(login);
+  }
+
+  function cleanDisplayName(displayNameRaw: string | null, login: string): string | null {
+    if (!displayNameRaw) return null;
+
+    let displayName = stripHtml(displayNameRaw)
+      .replace(/\s+/g, ' ')
+      .replace(new RegExp(`\\(${escapeRegExp(login)}\\)`, 'i'), '')
+      .trim();
+
+    // 去掉可能粘上的表头/排名前缀。
+    displayName = displayName
+      .replace(/^.*?\bChannel\s+/i, '')
+      .replace(/^.*?\bLanguage\s+/i, '')
+      .replace(/^\d{1,3}\s+/, '')
+      .trim();
+
+    if (
+      !displayName ||
+      displayName.length > 80 ||
+      /SullyGnome|Twitch|stats|analysis|Channel|Watch time|Stream time|Peak viewers|Average viewers|Followers|Status|Language|Timezone|Currently showing/i.test(displayName)
+    ) {
+      return null;
+    }
+
+    return displayName;
+  }
+
   function addSeed(loginRaw: string, displayNameRaw: string | null, followersFallback: number | null = null) {
     const login = decodeURIComponent(loginRaw || '').trim();
 
     if (!login) return;
     if (!/^[A-Za-z0-9_]{2,30}$/.test(login)) return;
+    if (isBadLogin(login)) return;
 
-    // 排除页面导航、时区、地区、无关词，避免误抓 UTC / Taiwan / Brazil / Mexico。
-    if (
-      /^(home|channels|games|teams|search|milestones|articles|about|patreon|utc|taiwan|brazil|mexico|japan|japanese|english|spanish|korean|chinese)$/i.test(login)
-    ) {
-      return;
-    }
-
-    let displayName = displayNameRaw ? stripHtml(displayNameRaw).trim() : null;
-
-    if (displayName) {
-      displayName = displayName
-        .replace(/\s+/g, ' ')
-        .replace(new RegExp(`\\(${escapeRegExp(login)}\\)`, 'i'), '')
-        .trim();
-    }
-
-    if (
-      !displayName ||
-      displayName.length > 80 ||
-      /SullyGnome|Twitch|stats|analysis|Channel|Watch time|Stream time|Peak viewers|Average viewers|Followers|Status|Language|Timezone/i.test(displayName)
-    ) {
-      displayName = null;
-    }
-
+    const displayName = cleanDisplayName(displayNameRaw, login);
     const prev = seeds.get(login);
 
     if (!prev) {
@@ -306,28 +314,27 @@ function parseChannelsFromMostWatched(html: string): ChannelSeed[] {
     }
   }
 
-  // 1. 先从 HTML 里的 channel href 抓真实频道链接。
-  // 兼容：
-  // /channel/bell0717
-  // /channel/bell0717/3
-  // https://sullygnome.com/channel/bell0717/3
+  // 1. 优先从 HTML href 抓真实频道链接。
+  const hrefRegex =
+    /(?:href=["']|["'\s])(?:https?:\/\/(?:www\.)?sullygnome\.com)?\/channel\/([A-Za-z0-9_]{2,30})(?:\/\d+)?(?:[?#][^"'\s]*)?/gi;
+
+  let hrefMatch: RegExpExecArray | null;
+  while ((hrefMatch = hrefRegex.exec(decodedHtml))) {
+    addSeed(hrefMatch[1], null, null);
+  }
+
+  // 2. 从 a 标签里补 displayName。
   const anchorRegex =
     /<a\b[^>]*href=["'](?:https?:\/\/(?:www\.)?sullygnome\.com)?\/channel\/([A-Za-z0-9_]{2,30})(?:\/\d+)?(?:[?#][^"']*)?["'][^>]*>([\s\S]*?)<\/a>/gi;
 
   let anchorMatch: RegExpExecArray | null;
   while ((anchorMatch = anchorRegex.exec(decodedHtml))) {
-    const login = anchorMatch[1];
-    const label = stripHtml(anchorMatch[2]);
-
-    // 只有 label 像频道名时才加入，避免导航误入。
-    if (label && !/SullyGnome|Twitch|Home|Channels|Games|Teams|Search|View on Twitch/i.test(label)) {
-      addSeed(login, label, null);
-    }
+    addSeed(anchorMatch[1], anchorMatch[2], null);
   }
 
-  // 2. 从 Most watched 表格文本里精确解析：
-  // rank + displayName(login) + watchTime + streamTime + peak + average + followers
-  // 这样可以避免误抓 "(UTC)"、地区筛选等页面杂项。
+  // 3. 最稳兜底：从 Most watched 表格文本中解析 “显示名 (login) + 5个数字列”。
+  // 表格列通常是：
+  // Channel | Watch time | Stream time | Peak viewers | Average viewers | Followers | Status | Language
   const tableStartCandidates = [
     pageText.search(/Channel\s+Watch time/i),
     pageText.search(/Watch time\s*\(hours\)/i),
@@ -335,36 +342,46 @@ function parseChannelsFromMostWatched(html: string): ChannelSeed[] {
   ].filter((index) => index >= 0);
 
   const tableStart = tableStartCandidates.length ? Math.min(...tableStartCandidates) : 0;
-  const tableText = pageText.slice(tableStart, tableStart + 25000);
+  const tableText = pageText.slice(tableStart, tableStart + 40000);
 
-  const rowRegex =
-    /(?:^|\s)(\d{1,3})\s+(.{1,90}?)\s+\(([A-Za-z0-9_]{2,30})\)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)(?:\s+(?:Partner|Community|Affiliate|Non-Affiliate|Unknown))?/g;
+  const parenRegex = /\(([A-Za-z0-9_]{2,30})\)/g;
+  let parenMatch: RegExpExecArray | null;
 
-  let rowMatch: RegExpExecArray | null;
-  while ((rowMatch = rowRegex.exec(tableText))) {
-    const displayName = rowMatch[2]?.trim() || null;
-    const login = rowMatch[3]?.trim() || '';
-    const followers = parseNumber(rowMatch[8]);
+  while ((parenMatch = parenRegex.exec(tableText))) {
+    const login = parenMatch[1];
 
-    addSeed(login, displayName, followers);
-  }
+    if (isBadLogin(login)) continue;
 
-  // 3. 兜底解析 displayName(login)，但必须要求后面紧跟 5 个数字列。
-  // 不再做宽泛的 “任意文字(login)” 解析，避免再次抓到 UTC / Taiwan。
-  const strictTextRegex =
-    /(.{1,90}?)\s+\(([A-Za-z0-9_]{2,30})\)\s+[\d,]+\s+[\d,]+\s+[\d,]+\s+[\d,]+\s+([\d,]+)/g;
+    const before = tableText.slice(Math.max(0, parenMatch.index - 160), parenMatch.index);
+    const after = tableText.slice(parenRegex.lastIndex, parenRegex.lastIndex + 220);
 
-  let strictMatch: RegExpExecArray | null;
-  while ((strictMatch = strictTextRegex.exec(tableText))) {
-    const displayName = strictMatch[1]?.trim() || null;
-    const login = strictMatch[2]?.trim() || '';
-    const followers = parseNumber(strictMatch[3]);
+    // login 后面必须很快出现至少 5 个数字列，否则认为不是频道表格行。
+    const firstNumberIndex = after.search(/-?[\d,]+(?:\.\d+)?/);
+    if (firstNumberIndex < 0 || firstNumberIndex > 80) continue;
 
-    if (/Channel|Watch time|Stream time|Peak viewers|Average viewers|Followers|Status|Language/i.test(displayName || '')) {
-      continue;
+    const numberMatches = Array.from(after.matchAll(/-?[\d,]+(?:\.\d+)?/g)).map((m) => m[0]);
+    if (numberMatches.length < 5) continue;
+
+    const beforeClean = before.replace(/\s+/g, ' ').trim();
+
+    // 尽量截取排名后的频道名，例如 “1 ぺるるる” -> “ぺるるる”
+    const rankDisplayMatch = beforeClean.match(/(?:^|\s)\d{1,3}\s+(.{1,90})$/);
+    let displayName = rankDisplayMatch?.[1]?.trim() || beforeClean.slice(-80).trim();
+
+    displayName = displayName
+      .replace(/^.*?\bChannel\s+/i, '')
+      .replace(/^.*?\bLanguage\s+/i, '')
+      .replace(/^\d{1,3}\s+/, '')
+      .trim();
+
+    if (/SullyGnome|Twitch|stats|analysis|Channel|Watch time|Stream time|Peak viewers|Average viewers|Followers|Status|Language|Timezone|Currently showing/i.test(displayName)) {
+      displayName = '';
     }
 
-    addSeed(login, displayName, followers);
+    // 第5个数字列是 Followers fallback。
+    const followersFallback = parseNumber(numberMatches[4]);
+
+    addSeed(login, displayName || null, followersFallback);
   }
 
   return Array.from(seeds.values());

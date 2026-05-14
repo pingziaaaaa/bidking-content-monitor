@@ -4,6 +4,32 @@ const TOKEN_URL = 'https://id.twitch.tv/oauth2/token';
 const CATEGORY_SEARCH_URL = 'https://api.twitch.tv/helix/search/categories';
 const VIDEOS_URL = 'https://api.twitch.tv/helix/videos';
 
+type TestResult = {
+  period: string;
+  type: string | null;
+  count: number;
+  status: 'ok' | 'error';
+  sampleVideos: Array<{
+    id: string;
+    title: string;
+    url: string;
+    user_id: string;
+    user_name: string;
+    created_at: string;
+    published_at: string | null;
+    view_count: number | null;
+    duration: string | null;
+    type: string | null;
+  }>;
+  error: string | null;
+};
+
+type TwitchCategory = {
+  id: string;
+  name: string;
+  box_art_url: string;
+};
+
 function formatError(message: string) {
   return NextResponse.json({ ok: false, error: message }, { status: 500 });
 }
@@ -68,13 +94,15 @@ async function fetchCategories(clientId: string, accessToken: string) {
   return response.json();
 }
 
-async function fetchVideos(clientId: string, accessToken: string, gameId: string, period: 'day' | 'week') {
+async function fetchVideos(clientId: string, accessToken: string, gameId: string, period: string, type: string | null) {
   const url = new URL(VIDEOS_URL);
   url.searchParams.set('game_id', gameId);
   url.searchParams.set('period', period);
   url.searchParams.set('sort', 'time');
-  url.searchParams.set('type', 'archive');
   url.searchParams.set('first', '20');
+  if (type) {
+    url.searchParams.set('type', type);
+  }
 
   const response = await fetch(url.toString(), {
     method: 'GET',
@@ -92,6 +120,21 @@ async function fetchVideos(clientId: string, accessToken: string, gameId: string
   return response.json();
 }
 
+function normalizeVideo(video: any) {
+  return {
+    id: video.id,
+    title: video.title,
+    url: video.url || `https://www.twitch.tv/videos/${video.id}`,
+    user_id: video.user_id,
+    user_name: video.user_name,
+    created_at: video.created_at,
+    published_at: video.published_at || null,
+    view_count: typeof video.view_count === 'number' ? video.view_count : null,
+    duration: typeof video.duration === 'string' ? video.duration : null,
+    type: video.type || null,
+  };
+}
+
 export async function GET() {
   const clientId = String(process.env.TWITCH_CLIENT_ID || '').trim();
   const clientSecret = String(process.env.TWITCH_CLIENT_SECRET || '').trim();
@@ -105,7 +148,6 @@ export async function GET() {
     const categoriesData = await fetchCategories(clientId, accessToken);
     const categories = Array.isArray(categoriesData.data) ? categoriesData.data : [];
     const exactCategory = findExactCategory(categories);
-
     const candidates = categories.map(buildCandidate);
 
     if (!exactCategory) {
@@ -113,9 +155,8 @@ export async function GET() {
         ok: true,
         game: null,
         candidates,
-        periodUsed: null,
-        count: 0,
-        videos: [],
+        tests: [],
+        firstNonEmptyTest: null,
         error: null,
       });
     }
@@ -126,36 +167,47 @@ export async function GET() {
       box_art_url: exactCategory.box_art_url,
     };
 
-    let videosData = await fetchVideos(clientId, accessToken, game.id, 'day');
-    let periodUsed: 'day' | 'week' | null = 'day';
-    let videos = Array.isArray(videosData.data) ? videosData.data : [];
+    const periods = ['day', 'week', 'month', 'all'];
+    const types = ['archive', 'highlight', 'upload', null] as Array<string | null>;
+    const tests: TestResult[] = [];
 
-    if (!videos.length) {
-      videosData = await fetchVideos(clientId, accessToken, game.id, 'week');
-      periodUsed = 'week';
-      videos = Array.isArray(videosData.data) ? videosData.data : [];
+    for (const period of periods) {
+      for (const type of types) {
+        try {
+          const videosData = await fetchVideos(clientId, accessToken, game.id, period, type);
+          const videos = Array.isArray(videosData.data) ? videosData.data : [];
+          const sampleVideos = videos.slice(0, 5).map(normalizeVideo);
+
+          tests.push({
+            period,
+            type,
+            count: videos.length,
+            status: 'ok',
+            sampleVideos,
+            error: null,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          tests.push({
+            period,
+            type,
+            count: 0,
+            status: 'error',
+            sampleVideos: [],
+            error: message,
+          });
+        }
+      }
     }
 
-    const formattedVideos = videos.map((video: any) => ({
-      id: video.id,
-      title: video.title,
-      url: video.url || `https://www.twitch.tv/videos/${video.id}`,
-      user_id: video.user_id,
-      user_name: video.user_name,
-      created_at: video.created_at,
-      published_at: video.published_at,
-      view_count: video.view_count,
-      duration: video.duration,
-      type: video.type,
-    }));
+    const firstNonEmptyTest = tests.find((test) => test.count > 0) ?? null;
 
     return NextResponse.json({
       ok: true,
       game,
       candidates,
-      periodUsed,
-      count: formattedVideos.length,
-      videos: formattedVideos,
+      tests,
+      firstNonEmptyTest,
       error: null,
     });
   } catch (error) {

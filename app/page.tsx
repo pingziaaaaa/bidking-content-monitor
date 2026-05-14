@@ -35,6 +35,22 @@ type AddAccountResponse = {
   source: 'supabase' | 'mock';
 };
 
+type RecognitionResult = {
+  id: string;
+  url: string | null;
+  platform_content_id: string | null;
+  creator: string;
+  name: string | null;
+  username: string | null;
+  title: string;
+  published_at: string | null;
+  followers: number | null;
+  impressions: number | null;
+  source: string;
+  status: 'success' | 'partial' | 'failed';
+  warning: string | null;
+};
+
 function formatBeijingTime(date: Date) {
   return `${new Intl.DateTimeFormat('zh-CN', {
     timeZone: 'Asia/Shanghai',
@@ -95,6 +111,16 @@ export default function Home() {
   const [importLinksText, setImportLinksText] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [importError, setImportError] = useState('');
+
+  const [isRecognizeModalOpen, setIsRecognizeModalOpen] = useState(false);
+  const [recognitionItems, setRecognitionItems] = useState<Array<{
+    id: string;
+    postImage: File | null;
+    profileImage: File | null;
+  }>>([]);
+  const [isRecognizing, setIsRecognizing] = useState(false);
+  const [recognitionResults, setRecognitionResults] = useState<RecognitionResult[] | null>(null);
+  const [recognitionError, setRecognitionError] = useState('');
 
   useEffect(() => {
     let isMounted = true;
@@ -333,6 +359,152 @@ export default function Home() {
     }
   }
 
+  function handleOpenRecognizeModal() {
+    setRecognitionItems([{ id: `item-${Date.now()}`, postImage: null, profileImage: null }]);
+    setRecognitionResults(null);
+    setRecognitionError('');
+    setIsRecognizeModalOpen(true);
+  }
+
+  function handleCloseRecognizeModal() {
+    setRecognitionItems([]);
+    setRecognitionResults(null);
+    setRecognitionError('');
+    setIsRecognizeModalOpen(false);
+  }
+
+  function handleAddRecognitionItem() {
+    setRecognitionItems([...recognitionItems, { id: `item-${Date.now()}`, postImage: null, profileImage: null }]);
+  }
+
+  function handleRemoveRecognitionItem(itemId: string) {
+    setRecognitionItems(recognitionItems.filter((item) => item.id !== itemId));
+  }
+
+  function handlePostImageChange(itemId: string, file: File | null) {
+    setRecognitionItems(
+      recognitionItems.map((item) =>
+        item.id === itemId ? { ...item, postImage: file } : item,
+      ),
+    );
+  }
+
+  function handleProfileImageChange(itemId: string, file: File | null) {
+    setRecognitionItems(
+      recognitionItems.map((item) =>
+        item.id === itemId ? { ...item, profileImage: file } : item,
+      ),
+    );
+  }
+
+  async function handleBatchRecognize() {
+    if (isRecognizing) {
+      return;
+    }
+
+    const validItems = recognitionItems.filter((item) => item.postImage);
+    if (!validItems.length) {
+      setRecognitionError('至少需要上传一张 Post 截图');
+      return;
+    }
+
+    setIsRecognizing(true);
+    setRecognitionError('');
+
+    try {
+      const formData = new FormData();
+      for (const item of validItems) {
+        if (!item.postImage) {
+          continue;
+        }
+
+        formData.append('items', JSON.stringify({
+          id: item.id,
+          postImageName: item.postImage.name,
+          profileImageName: item.profileImage?.name,
+        }));
+        formData.append('file', item.postImage, item.postImage.name);
+
+        if (item.profileImage) {
+          formData.append('file', item.profileImage, item.profileImage.name);
+        }
+      }
+
+      const response = await fetch('/api/manual/x-screenshot-recognize-batch', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.message || '识别失败，请稍后重试');
+      }
+
+      setRecognitionResults(result.results);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '识别失败';
+      setRecognitionError(message);
+    } finally {
+      setIsRecognizing(false);
+    }
+  }
+
+  function handleUpdateRecognitionResult(itemIdx: number, updates: Record<string, unknown>) {
+    if (!recognitionResults) {
+      return;
+    }
+
+    const updated = [...recognitionResults];
+    updated[itemIdx] = { ...updated[itemIdx], ...updates } as RecognitionResult;
+    setRecognitionResults(updated);
+  }
+
+  async function handleConfirmRecognitionImport() {
+    if (!recognitionResults) {
+      return;
+    }
+
+    setIsRecognizing(true);
+    setRecognitionError('');
+
+    try {
+      const response = await fetch('/api/manual/x-screenshot-import-batch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ items: recognitionResults }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.message || '写入失败');
+      }
+
+      setDataMessage(
+        `截图识别写入完成：成功 ${result.insertedCount + result.updatedCount} 条，失败 ${result.failedCount || 0} 条。`,
+      );
+
+      const monitoringResponse = await fetch('/api/monitoring');
+      if (monitoringResponse.ok) {
+        const payload = (await monitoringResponse.json()) as MonitoringResponse;
+        setContentItems(payload.contents);
+        setKeywords(payload.keywords);
+        setAccounts(payload.accounts);
+        setLatestScanTime(payload.latestScanTime);
+      }
+
+      handleCloseRecognizeModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '写入失败';
+      setRecognitionError(message);
+    } finally {
+      setIsRecognizing(false);
+    }
+  }
+
   async function handleAddAccount(account: NewAccountInput) {
     const url = account.url.trim();
     const note = account.note.trim();
@@ -543,7 +715,7 @@ export default function Home() {
             <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-700 shadow-sm">{scanMessage}</div>
           ) : null}
           <PlatformFilter activeFilter={activeFilter} onFilterChange={setActiveFilter} />
-          <ContentTable contents={filteredContents} isScanning={isScanning} onExport={handleExport} onScan={handleScan} onImportXLinks={handleOpenImportModal} onDeleteContent={handleDeleteContent} onClearAllContents={handleClearAllContents} />
+          <ContentTable contents={filteredContents} isScanning={isScanning} onExport={handleExport} onScan={handleScan} onBatchRecognizeX={handleOpenRecognizeModal} onDeleteContent={handleDeleteContent} onClearAllContents={handleClearAllContents} />
 
           {isImportModalOpen ? (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6">
@@ -591,6 +763,201 @@ export default function Home() {
                   >
                     {isImporting ? '导入中...' : '开始导入'}
                   </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {isRecognizeModalOpen ? (
+            <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/40 px-4 py-6">
+              <div className="mx-auto w-full max-w-6xl rounded-3xl bg-white p-6 shadow-2xl ring-1 ring-slate-200">
+                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-950">批量识别 X</h3>
+                    <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
+                      上传 Post 截图，选填主页截图。系统将从图片中识别 X 链接、username、tweet id、正文、发布时间、Impressions 和 Followers。无需输入链接。
+                    </p>
+                  </div>
+                  <button
+                    className="rounded-full border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300"
+                    type="button"
+                    onClick={handleCloseRecognizeModal}
+                  >
+                    关闭
+                  </button>
+                </div>
+
+                <div className="mt-6 space-y-6">
+                  <div className="space-y-4 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                    {recognitionItems.map((item, index) => (
+                      <div key={item.id} className="grid gap-4 rounded-3xl border border-slate-200 bg-white p-4 sm:grid-cols-[1fr_auto]">
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm font-semibold text-slate-900">第 {index + 1} 条</p>
+                            <button
+                              className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 transition hover:border-red-300 hover:text-red-600"
+                              type="button"
+                              onClick={() => handleRemoveRecognitionItem(item.id)}
+                            >
+                              删除
+                            </button>
+                          </div>
+                          <label className="block text-sm font-medium text-slate-700">Post 截图（必填）</label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                            onChange={(event) => handlePostImageChange(item.id, event.target.files?.[0] ?? null)}
+                          />
+                          <label className="block text-sm font-medium text-slate-700">主页截图（选填）</label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                            onChange={(event) => handleProfileImageChange(item.id, event.target.files?.[0] ?? null)}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                    <button
+                      className="rounded-full border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700"
+                      type="button"
+                      onClick={handleAddRecognitionItem}
+                    >
+                      添加一条
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      className="rounded-full bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-blue-200 transition hover:bg-blue-700 disabled:cursor-wait disabled:bg-blue-400"
+                      type="button"
+                      onClick={handleBatchRecognize}
+                      disabled={isRecognizing}
+                    >
+                      {isRecognizing ? '识别中...' : '开始识别'}
+                    </button>
+                    <button
+                      className="rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300"
+                      type="button"
+                      onClick={handleCloseRecognizeModal}
+                      disabled={isRecognizing}
+                    >
+                      取消
+                    </button>
+                  </div>
+
+                  {recognitionError ? (
+                    <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                      {recognitionError}
+                    </div>
+                  ) : null}
+
+                  {recognitionResults ? (
+                    <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <h4 className="text-lg font-semibold text-slate-900">识别结果预览</h4>
+                      <div className="mt-4 overflow-x-auto">
+                        <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+                          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                            <tr>
+                              {['状态', '链接', 'tweet id', '创作者', '用户名', '标题', '发布时间', 'Followers', 'Impressions', '来源', '说明'].map((header) => (
+                                <th key={header} className="border-b border-slate-200 px-3 py-3 font-bold">
+                                  {header}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {recognitionResults.map((result, idx) => (
+                              <tr key={result.id}>
+                                <td className="border-b border-slate-100 px-3 py-3 text-slate-700">{result.status === 'success' ? '成功' : result.status === 'partial' ? '部分' : '失败'}</td>
+                                <td className="border-b border-slate-100 px-3 py-3">
+                                  <input
+                                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900"
+                                    type="text"
+                                    value={result.url ?? ''}
+                                    onChange={(event) => handleUpdateRecognitionResult(idx, { url: event.target.value || null })}
+                                    placeholder="https://x.com/..."
+                                  />
+                                </td>
+                                <td className="border-b border-slate-100 px-3 py-3">
+                                  <input
+                                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900"
+                                    type="text"
+                                    value={result.platform_content_id ?? ''}
+                                    onChange={(event) => handleUpdateRecognitionResult(idx, { platform_content_id: event.target.value || null })}
+                                    placeholder="tweet id"
+                                  />
+                                </td>
+                                <td className="border-b border-slate-100 px-3 py-3">
+                                  <input
+                                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900"
+                                    type="text"
+                                    value={result.creator}
+                                    onChange={(event) => handleUpdateRecognitionResult(idx, { creator: event.target.value })}
+                                  />
+                                </td>
+                                <td className="border-b border-slate-100 px-3 py-3">
+                                  <input
+                                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900"
+                                    type="text"
+                                    value={result.username ?? ''}
+                                    onChange={(event) => handleUpdateRecognitionResult(idx, { username: event.target.value || null })}
+                                  />
+                                </td>
+                                <td className="border-b border-slate-100 px-3 py-3">
+                                  <input
+                                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900"
+                                    type="text"
+                                    value={result.title}
+                                    onChange={(event) => handleUpdateRecognitionResult(idx, { title: event.target.value })}
+                                  />
+                                </td>
+                                <td className="border-b border-slate-100 px-3 py-3">
+                                  <input
+                                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900"
+                                    type="text"
+                                    value={result.published_at ?? ''}
+                                    onChange={(event) => handleUpdateRecognitionResult(idx, { published_at: event.target.value || null })}
+                                  />
+                                </td>
+                                <td className="border-b border-slate-100 px-3 py-3">
+                                  <input
+                                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900"
+                                    type="number"
+                                    value={result.followers ?? ''}
+                                    onChange={(event) => handleUpdateRecognitionResult(idx, { followers: event.target.value ? Number(event.target.value) : null })}
+                                  />
+                                </td>
+                                <td className="border-b border-slate-100 px-3 py-3">
+                                  <input
+                                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900"
+                                    type="number"
+                                    value={result.impressions ?? ''}
+                                    onChange={(event) => handleUpdateRecognitionResult(idx, { impressions: event.target.value ? Number(event.target.value) : null })}
+                                  />
+                                </td>
+                                <td className="border-b border-slate-100 px-3 py-3">
+                                  <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">{result.source}</span>
+                                </td>
+                                <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-500">{result.warning ?? '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                        <button
+                          className="rounded-full bg-emerald-600 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-emerald-200 transition hover:bg-emerald-700 disabled:cursor-wait disabled:bg-emerald-400"
+                          type="button"
+                          onClick={handleConfirmRecognitionImport}
+                          disabled={isRecognizing}
+                        >
+                          {isRecognizing ? '写入中...' : '确认写入 Supabase'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>

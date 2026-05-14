@@ -6,7 +6,7 @@ type ContentTableProps = {
   isScanning: boolean;
   onExport: () => void;
   onScan: () => void;
-  onImportXLinks: () => void;
+  onBatchRecognizeX: () => void;
   onDeleteContent: (contentId: string) => void;
   onClearAllContents: () => void;
 };
@@ -17,7 +17,7 @@ const clampStyles = {
   overflow: 'hidden',
 };
 
-export function ContentTable({ contents, isScanning, onExport, onScan, onImportXLinks, onDeleteContent, onClearAllContents }: ContentTableProps) {
+export function ContentTable({ contents, isScanning, onExport, onScan, onBatchRecognizeX, onDeleteContent, onClearAllContents }: ContentTableProps) {
   return (
     <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
@@ -29,9 +29,9 @@ export function ContentTable({ contents, isScanning, onExport, onScan, onImportX
             <button
               className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700"
               type="button"
-              onClick={onImportXLinks}
+              onClick={onBatchRecognizeX}
             >
-              导入 X 链接
+              批量识别 X
             </button>
             <button
               className="rounded-full border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
@@ -110,7 +110,6 @@ export function ContentTable({ contents, isScanning, onExport, onScan, onImportX
                     {item.source || '—'}
                   </span>
                 </td>
-                <td className="whitespace-nowrap px-5 py-4 text-slate-500">{item.discoveredAt || '—'}</td>
                 <td className="px-5 py-4">
                   <button
                     className="rounded-full p-1 text-slate-400 hover:text-red-500 transition"

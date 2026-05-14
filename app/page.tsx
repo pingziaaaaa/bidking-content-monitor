@@ -51,17 +51,76 @@ type RecognitionResult = {
   warning: string | null;
 };
 
-function formatBeijingTime(date: Date) {
-  return `${new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).format(date)} 北京时间`;
+function PasteArea({ label, value, onPaste, onClear, required }: {
+  label: string;
+  value: string | null;
+  onPaste: (base64: string) => void;
+  onClear: () => void;
+  required?: boolean;
+}) {
+  const [isFocused, setIsFocused] = useState(false);
+
+  const handlePaste = async (event: React.ClipboardEvent) => {
+    event.preventDefault();
+    const items = event.clipboardData.items;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.indexOf('image') !== -1) {
+        const file = item.getAsFile();
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const base64 = (reader.result as string).split(',')[1];
+            onPaste(base64);
+          };
+          reader.readAsDataURL(file);
+        }
+        break;
+      }
+    }
+  };
+
+  return (
+    <div>
+      <label className="block text-sm font-medium text-slate-700">
+        {label} {required && <span className="text-red-500">*</span>}
+      </label>
+      <div
+        className={`mt-1 min-h-[120px] w-full rounded-3xl border-2 border-dashed px-4 py-3 text-sm text-slate-900 transition ${
+          isFocused ? 'border-blue-400 bg-blue-50' : value ? 'border-green-400 bg-green-50' : 'border-slate-300 bg-slate-50'
+        }`}
+        onPaste={handlePaste}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
+        tabIndex={0}
+        role="textbox"
+        aria-label={label}
+      >
+        {value ? (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <img src={`data:image/jpeg;base64,${value}`} alt="预览" className="h-16 w-16 rounded-lg object-cover" />
+              <span className="text-green-700">已粘贴</span>
+            </div>
+            <button
+              type="button"
+              onClick={onClear}
+              className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 transition hover:border-red-300 hover:text-red-600"
+            >
+              清除
+            </button>
+          </div>
+        ) : (
+          <div className="flex h-full items-center justify-center text-center text-slate-500">
+            <div>
+              <p>点击这里后按 Ctrl+V 粘贴截图</p>
+              <p className="text-xs mt-1">支持复制图片后直接粘贴</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function getAccountNameFromUrl(url: string) {
@@ -115,8 +174,8 @@ export default function Home() {
   const [isRecognizeModalOpen, setIsRecognizeModalOpen] = useState(false);
   const [recognitionItems, setRecognitionItems] = useState<Array<{
     id: string;
-    postImage: File | null;
-    profileImage: File | null;
+    postImageBase64: string | null;
+    profileImageBase64: string | null;
   }>>([]);
   const [isRecognizing, setIsRecognizing] = useState(false);
   const [recognitionResults, setRecognitionResults] = useState<RecognitionResult[] | null>(null);
@@ -360,7 +419,7 @@ export default function Home() {
   }
 
   function handleOpenRecognizeModal() {
-    setRecognitionItems([{ id: `item-${Date.now()}`, postImage: null, profileImage: null }]);
+    setRecognitionItems([{ id: `item-${Date.now()}`, postImageBase64: null, profileImageBase64: null }]);
     setRecognitionResults(null);
     setRecognitionError('');
     setIsRecognizeModalOpen(true);
@@ -374,25 +433,41 @@ export default function Home() {
   }
 
   function handleAddRecognitionItem() {
-    setRecognitionItems([...recognitionItems, { id: `item-${Date.now()}`, postImage: null, profileImage: null }]);
+    setRecognitionItems([...recognitionItems, { id: `item-${Date.now()}`, postImageBase64: null, profileImageBase64: null }]);
   }
 
   function handleRemoveRecognitionItem(itemId: string) {
     setRecognitionItems(recognitionItems.filter((item) => item.id !== itemId));
   }
 
-  function handlePostImageChange(itemId: string, file: File | null) {
+  function handlePostImagePaste(itemId: string, base64: string) {
     setRecognitionItems(
       recognitionItems.map((item) =>
-        item.id === itemId ? { ...item, postImage: file } : item,
+        item.id === itemId ? { ...item, postImageBase64: base64 } : item,
       ),
     );
   }
 
-  function handleProfileImageChange(itemId: string, file: File | null) {
+  function handleProfileImagePaste(itemId: string, base64: string) {
     setRecognitionItems(
       recognitionItems.map((item) =>
-        item.id === itemId ? { ...item, profileImage: file } : item,
+        item.id === itemId ? { ...item, profileImageBase64: base64 } : item,
+      ),
+    );
+  }
+
+  function handleClearPostImage(itemId: string) {
+    setRecognitionItems(
+      recognitionItems.map((item) =>
+        item.id === itemId ? { ...item, postImageBase64: null } : item,
+      ),
+    );
+  }
+
+  function handleClearProfileImage(itemId: string) {
+    setRecognitionItems(
+      recognitionItems.map((item) =>
+        item.id === itemId ? { ...item, profileImageBase64: null } : item,
       ),
     );
   }
@@ -402,9 +477,9 @@ export default function Home() {
       return;
     }
 
-    const validItems = recognitionItems.filter((item) => item.postImage);
+    const validItems = recognitionItems.filter((item) => item.postImageBase64);
     if (!validItems.length) {
-      setRecognitionError('至少需要上传一张 Post 截图');
+      setRecognitionError('至少需要粘贴一张 Post 截图');
       return;
     }
 
@@ -412,27 +487,20 @@ export default function Home() {
     setRecognitionError('');
 
     try {
-      const formData = new FormData();
-      for (const item of validItems) {
-        if (!item.postImage) {
-          continue;
-        }
-
-        formData.append('items', JSON.stringify({
+      const requestBody = {
+        items: validItems.map((item) => ({
           id: item.id,
-          postImageName: item.postImage.name,
-          profileImageName: item.profileImage?.name,
-        }));
-        formData.append('file', item.postImage, item.postImage.name);
-
-        if (item.profileImage) {
-          formData.append('file', item.profileImage, item.profileImage.name);
-        }
-      }
+          postImageBase64: item.postImageBase64,
+          profileImageBase64: item.profileImageBase64 || undefined,
+        })),
+      };
 
       const response = await fetch('/api/manual/x-screenshot-recognize-batch', {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
       });
 
       const result = await response.json();
@@ -775,7 +843,7 @@ export default function Home() {
                   <div>
                     <h3 className="text-xl font-bold text-slate-950">批量识别 X</h3>
                     <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-                      上传 Post 截图，选填主页截图。系统将从图片中识别 X 链接、username、tweet id、正文、发布时间、Impressions 和 Followers。无需输入链接。
+                      支持直接复制截图后 Ctrl+V 粘贴。Post 截图必填，主页截图选填。系统将从图片中识别 X 链接、username、tweet id、正文、发布时间、Impressions 和 Followers。
                     </p>
                   </div>
                   <button
@@ -802,19 +870,18 @@ export default function Home() {
                               删除
                             </button>
                           </div>
-                          <label className="block text-sm font-medium text-slate-700">Post 截图（必填）</label>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                            onChange={(event) => handlePostImageChange(item.id, event.target.files?.[0] ?? null)}
+                          <PasteArea
+                            label="Post 截图（必填）"
+                            value={item.postImageBase64}
+                            onPaste={(base64) => handlePostImagePaste(item.id, base64)}
+                            onClear={() => handleClearPostImage(item.id)}
+                            required
                           />
-                          <label className="block text-sm font-medium text-slate-700">主页截图（选填）</label>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                            onChange={(event) => handleProfileImageChange(item.id, event.target.files?.[0] ?? null)}
+                          <PasteArea
+                            label="主页截图（选填）"
+                            value={item.profileImageBase64}
+                            onPaste={(base64) => handleProfileImagePaste(item.id, base64)}
+                            onClear={() => handleClearProfileImage(item.id)}
                           />
                         </div>
                       </div>

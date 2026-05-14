@@ -20,7 +20,7 @@ const clampStyles = {
 
 const columns = {
   platform: 90,
-  time: 120,
+  time: 100,
   title: 240,
   link: 130,
   creator: 220,
@@ -41,13 +41,20 @@ function formatDisplayTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
 
-  const month = date.getMonth() + 1;
-  const day = date.getDate();
-  const hour = String(date.getHours()).padStart(2, '0');
-  const minute = String(date.getMinutes()).padStart(2, '0');
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
 
-  return `${month}月${day}日 ${hour}:${minute}`;
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+
+  return `${Number(get('month'))}月${Number(get('day'))}日 ${get('hour')}:${get('minute')}`;
 }
+
 
 function HeaderCell({
   children,
@@ -62,7 +69,7 @@ function HeaderCell({
 }) {
   return (
     <th
-      className={`border-b border-slate-200 bg-slate-50 px-5 py-3 font-bold ${left !== undefined ? 'sticky z-40' : ''} ${className}`}
+      className={`border-b border-slate-200 bg-slate-50 px-5 py-3 font-bold ${left !== undefined ? 'sticky z-30' : ''} ${className}`}
       style={{ width, minWidth: width, left }}
     >
       {children}
@@ -83,7 +90,7 @@ function BodyCell({
 }) {
   return (
     <td
-      className={`px-5 py-4 ${left !== undefined ? 'sticky z-20 bg-white group-hover:bg-blue-50' : ''} ${className}`}
+      className={`px-5 py-4 ${left !== undefined ? 'sticky z-10 bg-white group-hover:bg-blue-50' : ''} ${className}`}
       style={{ width, minWidth: width, left }}
     >
       {children}
@@ -136,7 +143,7 @@ export function ContentTable({
 
   return (
     <section className="overflow-visible rounded-3xl border border-slate-200 bg-white shadow-sm">
-      <div className="sticky top-[72px] z-50 overflow-hidden rounded-t-3xl border-b border-slate-200 bg-white/95 backdrop-blur">
+      <div className="sticky top-[72px] z-40 overflow-hidden rounded-t-3xl border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h2 className="text-lg font-bold text-slate-950">最近48小时内容</h2>
@@ -184,11 +191,11 @@ export function ContentTable({
           className="content-table-scrollbar-hidden overflow-x-auto"
           onScroll={() => syncHorizontalScroll(headerScrollRef.current)}
         >
-          <table className="w-full border-separate border-spacing-0 text-left text-xs uppercase tracking-wide text-slate-500" style={{ minWidth: tableWidth }}>
+          <table className="w-full border-separate border-spacing-0 text-left text-xs uppercase tracking-wide text-slate-500" style={{ minWidth: tableWidth, tableLayout: "fixed" }}>
             <thead>
               <tr>
-                <HeaderCell width={columns.platform} left={0}>平台</HeaderCell>
-                <HeaderCell width={columns.time} left={columns.platform}>发布时间</HeaderCell>
+                <HeaderCell width={columns.platform} left={0} className="text-center">平台</HeaderCell>
+                <HeaderCell width={columns.time} left={columns.platform} className="!px-3 text-center">发布时间</HeaderCell>
                 <HeaderCell width={columns.title} left={columns.platform + columns.time}>标题/正文</HeaderCell>
                 <HeaderCell width={columns.link} left={columns.platform + columns.time + columns.title}>内容链接</HeaderCell>
                 <HeaderCell width={columns.creator}>创作者账号名</HeaderCell>
@@ -210,17 +217,17 @@ export function ContentTable({
         className="content-table-scrollbar-hidden overflow-x-auto"
         onScroll={() => syncHorizontalScroll(bodyScrollRef.current)}
       >
-        <table className="w-full border-separate border-spacing-0 text-left text-sm" style={{ minWidth: tableWidth }}>
+        <table className="w-full border-separate border-spacing-0 text-left text-sm" style={{ minWidth: tableWidth, tableLayout: "fixed" }}>
           <tbody className="divide-y divide-slate-100">
             {contents.map((item) => (
               <tr key={item.id} className="group align-top transition hover:bg-blue-50/40">
-                <BodyCell width={columns.platform} left={0}>
+                <BodyCell width={columns.platform} left={0} className="text-center">
                   <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ring-1 ${platformStyles(item.platform)}`}>
                     {item.platform}
                   </span>
                 </BodyCell>
 
-                <BodyCell width={columns.time} left={columns.platform} className="whitespace-nowrap text-slate-500">
+                <BodyCell width={columns.time} left={columns.platform} className="!px-3 whitespace-nowrap text-center text-slate-500">
                   {formatDisplayTime(item.discoveredAt)}
                 </BodyCell>
 

@@ -101,8 +101,8 @@ async function fetchHistoricalFollowers(
 
 
 function toBeijingDisplayIso(year: number, month: number, day: number, hour: number, minute: number) {
-  // 截图里的 X 时间按北京时间展示时间处理。
-  // Supabase 存 timestamptz，所以这里转成 UTC ISO；前端按北京时间显示时会还原为截图时间。
+  // X 截图里显示的时间，按“北京时间展示值”存储。
+  // 例如截图是 12:29 AM · May 14, 2026，前端就显示 5月14日 00:29。
   const utcTime = Date.UTC(year, month - 1, day, hour - 8, minute, 0);
   return new Date(utcTime).toISOString();
 }
@@ -158,7 +158,7 @@ function parseDateString(value: string | null): string {
     .replace(/\s+Impressions?.*$/i, '')
     .trim();
 
-  // X 英文格式：6:37 PM · May 13, 2026
+  // X 英文格式：12:29 AM · May 14, 2026
   const englishXMatch = cleaned.match(/(\d{1,2}):(\d{2})\s*(AM|PM)\s*·\s*([A-Za-z]{3,9})\s+(\d{1,2}),\s*(\d{4})/i);
   if (englishXMatch) {
     let hour = Number(englishXMatch[1]);
@@ -176,7 +176,7 @@ function parseDateString(value: string | null): string {
     }
   }
 
-  // X 英文格式反向：May 13, 2026 · 6:37 PM
+  // X 英文格式反向：May 14, 2026 · 12:29 AM
   const englishReverseMatch = cleaned.match(/([A-Za-z]{3,9})\s+(\d{1,2}),\s*(\d{4})\s*·\s*(\d{1,2}):(\d{2})\s*(AM|PM)/i);
   if (englishReverseMatch) {
     const month = monthNameToNumber(englishReverseMatch[1]);
@@ -194,7 +194,7 @@ function parseDateString(value: string | null): string {
     }
   }
 
-  // 中文 / 日文格式：2026年5月14日 17:21、5月14日 17:21、2026年5月14日 下午5:21
+  // 中文 / 日文格式：2026年5月14日 17:21、5月14日 17:21
   const cjkMatch = cleaned.match(/(?:(\d{4})年)?\s*(\d{1,2})月\s*(\d{1,2})日(?:[^\d]*(上午|下午|午前|午後))?\s*(\d{1,2}):(\d{2})/);
   if (cjkMatch) {
     const now = new Date();
@@ -216,11 +216,6 @@ function parseDateString(value: string | null): string {
   if (numericMatch) {
     const [, y, m, d, h, min] = numericMatch;
     return toBeijingDisplayIso(Number(y), Number(m), Number(d), Number(h), Number(min));
-  }
-
-  const directParsed = Date.parse(cleaned);
-  if (Number.isFinite(directParsed)) {
-    return new Date(directParsed).toISOString();
   }
 
   return new Date().toISOString();

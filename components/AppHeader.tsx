@@ -1,6 +1,6 @@
 export function AppHeader() {
   return (
-    <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur">
+    <header className="sticky top-0 z-[100] border-b border-slate-200 bg-white/90 backdrop-blur">
       <div className="mx-auto flex max-w-[1440px] items-center justify-between px-6 py-4">
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-600 text-lg font-black text-white shadow-sm shadow-blue-200">

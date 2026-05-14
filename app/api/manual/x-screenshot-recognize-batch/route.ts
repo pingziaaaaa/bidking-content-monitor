@@ -374,6 +374,7 @@ function buildPrompt(profileIncluded: boolean): string {
     '  "name": null 或 "作者名称",',
     '  "title": null 或 "帖子正文/标题",',
     '  "published_at": null 或 "发布时间文本",',
+    'published_at 必须优先读取帖子底部的完整发布时间行，例如 "12:29 AM · May 14, 2026"；不要使用当前识别时间，不要自行换算时区。',
     '  "followers": null 或 数字,',
     '  "impressions": null 或 数字',
     '}',

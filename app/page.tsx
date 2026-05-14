@@ -615,7 +615,17 @@ export default function Home() {
       }
 
       if (!response.ok || !result.ok) {
-        throw new Error(result.message || '识别失败，请稍后重试');
+        const rawMessage = result.message || '识别失败，请稍后重试';
+
+        if (
+          rawMessage.includes('RESOURCE_EXHAUSTED') ||
+          rawMessage.includes('Quota exceeded') ||
+          rawMessage.includes('429')
+        ) {
+          throw new Error('Gemini 今日免费识别额度已用完，请明天再试，或更换/升级 API Key。');
+        }
+
+        throw new Error(rawMessage);
       }
 
       setRecognitionResults(result.results);

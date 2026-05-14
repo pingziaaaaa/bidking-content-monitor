@@ -1,3 +1,6 @@
+'use client';
+
+import { useEffect, useRef } from 'react';
 import type { ContentItem } from '@/lib/mock-data';
 import { formatOptionalNumber, platformStyles } from '@/components/utils';
 
@@ -17,50 +20,97 @@ const clampStyles = {
   overflow: 'hidden',
 };
 
-export function ContentTable({ contents, isScanning, onExport, onScan, onBatchRecognizeX, onDeleteContent, onClearAllContents }: ContentTableProps) {
-  return (
-    <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-slate-950">最近24小时内容</h2>
-            <p className="mt-1 text-sm text-slate-500">按发现时间倒序展示，命中关键词与指定账号内容统一汇总。</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700"
-              type="button"
-              onClick={onBatchRecognizeX}
-            >
-              批量识别 X
-            </button>
-            <button
-              className="rounded-full border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-              type="button"
-              onClick={onClearAllContents}
-              disabled={contents.length === 0}
-            >
-              清空内容
-            </button>
-            <button
-              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-              type="button"
-              onClick={onExport}
-              disabled={contents.length === 0}
-            >
-              导出当前
-            </button>
-            <button
-              className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-blue-200 transition hover:bg-blue-700 disabled:cursor-wait disabled:bg-blue-400"
-              type="button"
-              onClick={onScan}
-              disabled={isScanning}
-            >
-              {isScanning ? '巡查中...' : '立即巡查'}
-            </button>
-          </div>
-        </div>
+function formatDisplayTime(value: string) {
+  if (!value) return '—';
 
-      <div className="overflow-x-auto">
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const hour = String(date.getHours()).padStart(2, '0');
+  const minute = String(date.getMinutes()).padStart(2, '0');
+
+  return `${month}月${day}日 ${hour}:${minute}`;
+}
+
+export function ContentTable({ contents, isScanning, onExport, onScan, onBatchRecognizeX, onDeleteContent, onClearAllContents }: ContentTableProps) {
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const isSyncingScrollRef = useRef(false);
+
+  function syncHorizontalScroll(source: HTMLDivElement | null, target: HTMLDivElement | null) {
+    if (!source || !target || isSyncingScrollRef.current) return;
+
+    isSyncingScrollRef.current = true;
+    target.scrollLeft = source.scrollLeft;
+
+    requestAnimationFrame(() => {
+      isSyncingScrollRef.current = false;
+    });
+  }
+
+  useEffect(() => {
+    if (topScrollRef.current && tableScrollRef.current) {
+      topScrollRef.current.scrollLeft = tableScrollRef.current.scrollLeft;
+    }
+  }, [contents.length]);
+
+  return (
+    <section className="overflow-visible rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-slate-950">最近24小时内容</h2>
+          <p className="mt-1 text-sm text-slate-500">按平台优先级展示，平台内按发布时间倒序排列。</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700"
+            type="button"
+            onClick={onBatchRecognizeX}
+          >
+            批量识别 X
+          </button>
+          <button
+            className="rounded-full border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+            type="button"
+            onClick={onClearAllContents}
+            disabled={contents.length === 0}
+          >
+            清空内容
+          </button>
+          <button
+            className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            type="button"
+            onClick={onExport}
+            disabled={contents.length === 0}
+          >
+            导出当前
+          </button>
+          <button
+            className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-blue-200 transition hover:bg-blue-700 disabled:cursor-wait disabled:bg-blue-400"
+            type="button"
+            onClick={onScan}
+            disabled={isScanning}
+          >
+            {isScanning ? '巡查中...' : '立即巡查'}
+          </button>
+        </div>
+      </div>
+
+      <div
+        ref={topScrollRef}
+        className="sticky top-[72px] z-20 overflow-x-auto border-b border-slate-200 bg-white/95 px-5 py-2 backdrop-blur"
+        onScroll={() => syncHorizontalScroll(topScrollRef.current, tableScrollRef.current)}
+      >
+        <div className="h-1 min-w-[1440px]" />
+      </div>
+
+      <div
+        ref={tableScrollRef}
+        className="overflow-x-auto"
+        onScroll={() => syncHorizontalScroll(tableScrollRef.current, topScrollRef.current)}
+      >
         <table className="min-w-[1440px] w-full border-separate border-spacing-0 text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             <tr>
@@ -79,7 +129,7 @@ export function ContentTable({ contents, isScanning, onExport, onScan, onBatchRe
                     {item.platform}
                   </span>
                 </td>
-                <td className="whitespace-nowrap px-5 py-4 text-slate-500">{item.discoveredAt || '—'}</td>
+                <td className="whitespace-nowrap px-5 py-4 text-slate-500">{formatDisplayTime(item.discoveredAt)}</td>
                 <td className="max-w-[420px] px-5 py-4 font-medium leading-6 text-slate-900" style={{ ...clampStyles, WebkitLineClamp: 3 }}>
                   {item.title || '—'}
                 </td>

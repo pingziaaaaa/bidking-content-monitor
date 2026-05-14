@@ -184,6 +184,21 @@ function buildContentCsv(items: ContentItem[]) {
   return [headers, ...rows].map((row) => row.map(escapeCsvCell).join(',')).join('\n');
 }
 
+const platformSortPriority: Record<Platform, number> = {
+  Twitch: 0,
+  YouTube: 1,
+  X: 2,
+};
+
+function getPlatformSortPriority(platform: Platform) {
+  return platformSortPriority[platform] ?? 99;
+}
+
+function getDiscoveredAtTime(value: string) {
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export default function Home() {
   const [activeFilter, setActiveFilter] = useState<PlatformFilterValue>('全部');
   const [contentItems, setContentItems] = useState<ContentItem[]>(initialContents);
@@ -248,11 +263,19 @@ export default function Home() {
   }, []);
 
   const filteredContents = useMemo(() => {
-    if (activeFilter === '全部') {
-      return contentItems;
-    }
+    const filtered = activeFilter === '全部'
+      ? contentItems
+      : contentItems.filter((item) => item.platform === activeFilter);
 
-    return contentItems.filter((item) => item.platform === activeFilter);
+    return [...filtered].sort((a, b) => {
+      const platformDiff = getPlatformSortPriority(a.platform) - getPlatformSortPriority(b.platform);
+
+      if (platformDiff !== 0) {
+        return platformDiff;
+      }
+
+      return getDiscoveredAtTime(b.discoveredAt) - getDiscoveredAtTime(a.discoveredAt);
+    });
   }, [activeFilter, contentItems]);
 
   async function handleAddKeyword(keyword: string) {

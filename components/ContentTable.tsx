@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import type { ContentItem } from '@/lib/mock-data';
 import { formatOptionalNumber, platformStyles } from '@/components/utils';
 
@@ -18,6 +18,23 @@ const clampStyles = {
   overflow: 'hidden',
 };
 
+const columns = {
+  platform: 90,
+  time: 120,
+  title: 240,
+  link: 130,
+  creator: 220,
+  followers: 130,
+  views: 120,
+  impressions: 150,
+  peakViewers: 150,
+  vodViews: 140,
+  source: 230,
+  action: 90,
+};
+
+const tableWidth = Object.values(columns).reduce((sum, width) => sum + width, 0);
+
 function formatDisplayTime(value: string) {
   if (!value) return '—';
 
@@ -32,46 +49,42 @@ function formatDisplayTime(value: string) {
   return `${month}月${day}日 ${hour}:${minute}`;
 }
 
-function StickyHeaderCell({
+function HeaderCell({
   children,
-  left,
   width,
+  left,
   className = '',
 }: {
-  children: React.ReactNode;
-  left?: number;
+  children: ReactNode;
   width: number;
+  left?: number;
   className?: string;
 }) {
-  const stickyStyle = left === undefined ? {} : { left };
-
   return (
     <th
-      className={`sticky top-[118px] border-b border-slate-200 bg-slate-50 px-5 py-3 font-bold ${left === undefined ? 'z-30' : 'z-50'} ${className}`}
-      style={{ width, minWidth: width, ...stickyStyle }}
+      className={`border-b border-slate-200 bg-slate-50 px-5 py-3 font-bold ${left !== undefined ? 'sticky z-40' : ''} ${className}`}
+      style={{ width, minWidth: width, left }}
     >
       {children}
     </th>
   );
 }
 
-function StickyBodyCell({
+function BodyCell({
   children,
-  left,
   width,
+  left,
   className = '',
 }: {
-  children: React.ReactNode;
-  left?: number;
+  children: ReactNode;
   width: number;
+  left?: number;
   className?: string;
 }) {
-  const stickyStyle = left === undefined ? {} : { left };
-
   return (
     <td
-      className={`${left === undefined ? '' : 'sticky z-20 bg-white group-hover:bg-blue-50'} px-5 py-4 ${className}`}
-      style={{ width, minWidth: width, ...stickyStyle }}
+      className={`px-5 py-4 ${left !== undefined ? 'sticky z-20 bg-white group-hover:bg-blue-50' : ''} ${className}`}
+      style={{ width, minWidth: width, left }}
     >
       {children}
     </td>
@@ -86,14 +99,28 @@ export function ContentTable({
   onClearAllContents,
 }: ContentTableProps) {
   const topScrollRef = useRef<HTMLDivElement>(null);
-  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const headerScrollRef = useRef<HTMLDivElement>(null);
+  const bodyScrollRef = useRef<HTMLDivElement>(null);
   const isSyncingScrollRef = useRef(false);
 
-  function syncHorizontalScroll(source: HTMLDivElement | null, target: HTMLDivElement | null) {
-    if (!source || !target || isSyncingScrollRef.current) return;
+  function syncHorizontalScroll(source: HTMLDivElement | null) {
+    if (!source || isSyncingScrollRef.current) return;
 
     isSyncingScrollRef.current = true;
-    target.scrollLeft = source.scrollLeft;
+
+    const scrollLeft = source.scrollLeft;
+
+    if (topScrollRef.current && topScrollRef.current !== source) {
+      topScrollRef.current.scrollLeft = scrollLeft;
+    }
+
+    if (headerScrollRef.current && headerScrollRef.current !== source) {
+      headerScrollRef.current.scrollLeft = scrollLeft;
+    }
+
+    if (bodyScrollRef.current && bodyScrollRef.current !== source) {
+      bodyScrollRef.current.scrollLeft = scrollLeft;
+    }
 
     requestAnimationFrame(() => {
       isSyncingScrollRef.current = false;
@@ -101,97 +128,109 @@ export function ContentTable({
   }
 
   useEffect(() => {
-    if (topScrollRef.current && tableScrollRef.current) {
-      topScrollRef.current.scrollLeft = tableScrollRef.current.scrollLeft;
-    }
+    if (!topScrollRef.current || !headerScrollRef.current || !bodyScrollRef.current) return;
+
+    headerScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+    bodyScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
   }, [contents.length]);
 
   return (
     <section className="overflow-visible rounded-3xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h2 className="text-lg font-bold text-slate-950">最近48小时内容</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            仅展示当前时间往前 48 小时内的内容，按平台优先级展示，平台内按发布时间倒序排列。
-          </p>
+      <div className="sticky top-[72px] z-50 overflow-hidden rounded-t-3xl border-b border-slate-200 bg-white/95 backdrop-blur">
+        <div className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-slate-950">最近48小时内容</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              仅展示当前时间往前 48 小时内的内容，按平台优先级展示，平台内按发布时间倒序排列。
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700"
+              type="button"
+              onClick={onBatchRecognizeX}
+            >
+              批量识别 X
+            </button>
+            <button
+              className="rounded-full border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+              type="button"
+              onClick={onClearAllContents}
+              disabled={contents.length === 0}
+            >
+              清空内容
+            </button>
+            <button
+              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              type="button"
+              onClick={onExport}
+              disabled={contents.length === 0}
+            >
+              导出当前
+            </button>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700"
-            type="button"
-            onClick={onBatchRecognizeX}
-          >
-            批量识别 X
-          </button>
-          <button
-            className="rounded-full border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-            type="button"
-            onClick={onClearAllContents}
-            disabled={contents.length === 0}
-          >
-            清空内容
-          </button>
-          <button
-            className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-            type="button"
-            onClick={onExport}
-            disabled={contents.length === 0}
-          >
-            导出当前
-          </button>
+
+        <div
+          ref={topScrollRef}
+          className="overflow-x-auto border-t border-slate-100 px-5 py-2"
+          onScroll={() => syncHorizontalScroll(topScrollRef.current)}
+        >
+          <div className="h-1" style={{ width: tableWidth }} />
+        </div>
+
+        <div
+          ref={headerScrollRef}
+          className="content-table-scrollbar-hidden overflow-x-auto"
+          onScroll={() => syncHorizontalScroll(headerScrollRef.current)}
+        >
+          <table className="w-full border-separate border-spacing-0 text-left text-xs uppercase tracking-wide text-slate-500" style={{ minWidth: tableWidth }}>
+            <thead>
+              <tr>
+                <HeaderCell width={columns.platform} left={0}>平台</HeaderCell>
+                <HeaderCell width={columns.time} left={columns.platform}>发布时间</HeaderCell>
+                <HeaderCell width={columns.title} left={columns.platform + columns.time}>标题/正文</HeaderCell>
+                <HeaderCell width={columns.link} left={columns.platform + columns.time + columns.title}>内容链接</HeaderCell>
+                <HeaderCell width={columns.creator}>创作者账号名</HeaderCell>
+                <HeaderCell width={columns.followers}>Followers</HeaderCell>
+                <HeaderCell width={columns.views}>Views</HeaderCell>
+                <HeaderCell width={columns.impressions}>Impressions</HeaderCell>
+                <HeaderCell width={columns.peakViewers}>Peak Viewers</HeaderCell>
+                <HeaderCell width={columns.vodViews}>VOD Views</HeaderCell>
+                <HeaderCell width={columns.source}>来源</HeaderCell>
+                <HeaderCell width={columns.action}>操作</HeaderCell>
+              </tr>
+            </thead>
+          </table>
         </div>
       </div>
 
       <div
-        ref={topScrollRef}
-        className="sticky top-[72px] z-50 overflow-x-auto border-b border-slate-200 bg-white/95 px-5 py-2 backdrop-blur"
-        onScroll={() => syncHorizontalScroll(topScrollRef.current, tableScrollRef.current)}
-      >
-        <div className="h-1 min-w-[1800px]" />
-      </div>
-
-      <div
-        ref={tableScrollRef}
+        ref={bodyScrollRef}
         className="content-table-scrollbar-hidden overflow-x-auto"
-        onScroll={() => syncHorizontalScroll(tableScrollRef.current, topScrollRef.current)}
+        onScroll={() => syncHorizontalScroll(bodyScrollRef.current)}
       >
-        <table className="min-w-[1800px] w-full border-separate border-spacing-0 text-left text-sm">
-          <thead className="text-xs uppercase tracking-wide text-slate-500">
-            <tr>
-              <StickyHeaderCell width={120} left={0}>平台</StickyHeaderCell>
-              <StickyHeaderCell width={150} left={120}>发布时间</StickyHeaderCell>
-              <StickyHeaderCell width={300} left={270}>标题/正文</StickyHeaderCell>
-              <StickyHeaderCell width={170} left={570}>内容链接</StickyHeaderCell>
-              <StickyHeaderCell width={220}>创作者账号名</StickyHeaderCell>
-              <StickyHeaderCell width={130}>Followers</StickyHeaderCell>
-              <StickyHeaderCell width={120}>Views</StickyHeaderCell>
-              <StickyHeaderCell width={150}>Impressions</StickyHeaderCell>
-              <StickyHeaderCell width={150}>Peak Viewers</StickyHeaderCell>
-              <StickyHeaderCell width={140}>VOD Views</StickyHeaderCell>
-              <StickyHeaderCell width={230}>来源</StickyHeaderCell>
-              <StickyHeaderCell width={90}>操作</StickyHeaderCell>
-            </tr>
-          </thead>
+        <table className="w-full border-separate border-spacing-0 text-left text-sm" style={{ minWidth: tableWidth }}>
           <tbody className="divide-y divide-slate-100">
             {contents.map((item) => (
               <tr key={item.id} className="group align-top transition hover:bg-blue-50/40">
-                <StickyBodyCell width={120} left={0}>
+                <BodyCell width={columns.platform} left={0}>
                   <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ring-1 ${platformStyles(item.platform)}`}>
                     {item.platform}
                   </span>
-                </StickyBodyCell>
+                </BodyCell>
 
-                <StickyBodyCell width={150} left={120} className="whitespace-nowrap text-slate-500">
+                <BodyCell width={columns.time} left={columns.platform} className="whitespace-nowrap text-slate-500">
                   {formatDisplayTime(item.discoveredAt)}
-                </StickyBodyCell>
+                </BodyCell>
 
-                <StickyBodyCell width={300} left={270} className="font-medium leading-6 text-slate-900">
+                <BodyCell width={columns.title} left={columns.platform + columns.time} className="font-medium leading-6 text-slate-900">
                   <div style={{ ...clampStyles, WebkitLineClamp: 3 }}>
                     {item.title || '—'}
                   </div>
-                </StickyBodyCell>
+                </BodyCell>
 
-                <StickyBodyCell width={170} left={570}>
+                <BodyCell width={columns.link} left={columns.platform + columns.time + columns.title}>
                   {item.url ? (
                     <a
                       className="inline-flex min-w-[6rem] items-center rounded-full bg-slate-50 px-3 py-2 text-sm font-semibold text-blue-600 transition hover:bg-slate-100 hover:text-blue-800"
@@ -204,34 +243,41 @@ export function ContentTable({
                   ) : (
                     <span className="text-slate-500">—</span>
                   )}
-                </StickyBodyCell>
+                </BodyCell>
 
-                <td className="px-5 py-4 text-slate-700" style={{ width: 220, minWidth: 220 }}>
+                <td className="px-5 py-4 text-slate-700" style={{ width: columns.creator, minWidth: columns.creator }}>
                   <div style={{ ...clampStyles, WebkitLineClamp: 2 }}>
                     {item.creator || '—'}
                   </div>
                 </td>
-                <td className="whitespace-nowrap px-5 py-4 text-center font-semibold text-slate-950" style={{ width: 130, minWidth: 130 }}>
+
+                <td className="whitespace-nowrap px-5 py-4 text-center font-semibold text-slate-950" style={{ width: columns.followers, minWidth: columns.followers }}>
                   {formatOptionalNumber(item.metrics.followers)}
                 </td>
-                <td className="whitespace-nowrap px-5 py-4 text-center font-semibold text-slate-950" style={{ width: 120, minWidth: 120 }}>
+
+                <td className="whitespace-nowrap px-5 py-4 text-center font-semibold text-slate-950" style={{ width: columns.views, minWidth: columns.views }}>
                   {formatOptionalNumber(item.metrics.views)}
                 </td>
-                <td className="whitespace-nowrap px-5 py-4 text-center font-semibold text-slate-950" style={{ width: 150, minWidth: 150 }}>
+
+                <td className="whitespace-nowrap px-5 py-4 text-center font-semibold text-slate-950" style={{ width: columns.impressions, minWidth: columns.impressions }}>
                   {formatOptionalNumber(item.metrics.impressions)}
                 </td>
-                <td className="whitespace-nowrap px-5 py-4 text-center font-semibold text-slate-950" style={{ width: 150, minWidth: 150 }}>
+
+                <td className="whitespace-nowrap px-5 py-4 text-center font-semibold text-slate-950" style={{ width: columns.peakViewers, minWidth: columns.peakViewers }}>
                   {formatOptionalNumber(item.metrics.peakViewers)}
                 </td>
-                <td className="whitespace-nowrap px-5 py-4 text-center font-semibold text-slate-950" style={{ width: 140, minWidth: 140 }}>
+
+                <td className="whitespace-nowrap px-5 py-4 text-center font-semibold text-slate-950" style={{ width: columns.vodViews, minWidth: columns.vodViews }}>
                   {formatOptionalNumber(item.metrics.vodViews)}
                 </td>
-                <td className="px-5 py-4" style={{ width: 230, minWidth: 230 }}>
+
+                <td className="px-5 py-4" style={{ width: columns.source, minWidth: columns.source }}>
                   <span className="inline-flex whitespace-nowrap rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
                     {item.source || '—'}
                   </span>
                 </td>
-                <td className="px-5 py-4" style={{ width: 90, minWidth: 90 }}>
+
+                <td className="px-5 py-4" style={{ width: columns.action, minWidth: columns.action }}>
                   <button
                     className="rounded-full p-1 text-slate-400 transition hover:text-red-500"
                     type="button"

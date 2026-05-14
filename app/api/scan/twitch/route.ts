@@ -256,18 +256,28 @@ async function fetchHtmlWithRetry(url: string, retries = 3): Promise<{ status: n
 
 function parseChannelsFromMostWatched(html: string): ChannelSeed[] {
   const seeds = new Map<string, ChannelSeed>();
+  const decodedHtml = decodeEntities(html);
+  const pageText = stripHtml(decodedHtml);
 
-  const anchorRegex = /<a[^>]+href=["']\/channel\/([^\/"']+)(?:\/\d+)?["'][^>]*>([\s\S]*?)<\/a>/gi;
-  let match: RegExpExecArray | null;
+  function addSeed(loginRaw: string, displayNameRaw: string | null) {
+    const login = decodeURIComponent(loginRaw || '').trim();
 
-  while ((match = anchorRegex.exec(html))) {
-    const login = decodeURIComponent(match[1]).trim();
-    const label = stripHtml(match[2]);
+    if (!login) return;
+    if (!/^[A-Za-z0-9_]{2,30}$/.test(login)) return;
+    if (/^(home|channels|games|teams|search|milestones|articles|about|patreon)$/i.test(login)) return;
 
-    if (!login || /^(games|teams|search)$/i.test(login)) continue;
+    let displayName = displayNameRaw ? stripHtml(displayNameRaw).trim() : null;
 
-    const displayMatch = label.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
-    const displayName = displayMatch?.[1]?.trim() || label.replace(/\(.+?\)/g, '').trim() || null;
+    if (displayName) {
+      displayName = displayName
+        .replace(/\s+/g, ' ')
+        .replace(new RegExp(`\\(${escapeRegExp(login)}\\)`, 'i'), '')
+        .trim();
+    }
+
+    if (!displayName || displayName.length > 80 || /SullyGnome|Twitch|stats|analysis|Channel|Watch time|Stream time/i.test(displayName)) {
+      displayName = null;
+    }
 
     if (!seeds.has(login)) {
       seeds.set(login, {
@@ -275,7 +285,45 @@ function parseChannelsFromMostWatched(html: string): ChannelSeed[] {
         displayName,
         followersFallback: null,
       });
+    } else if (!seeds.get(login)?.displayName && displayName) {
+      seeds.set(login, {
+        ...seeds.get(login)!,
+        displayName,
+      });
     }
+  }
+
+  // 1) 优先从 a 标签 href 解析。兼容相对链接、绝对链接、有 days、无 days、有 query/hash。
+  const anchorRegex =
+    /<a\b[^>]*href=["'](?:https?:\/\/(?:www\.)?sullygnome\.com)?\/channel\/([^\/"'?#]+)(?:\/\d+)?(?:[?#][^"']*)?["'][^>]*>([\s\S]*?)<\/a>/gi;
+
+  let anchorMatch: RegExpExecArray | null;
+  while ((anchorMatch = anchorRegex.exec(decodedHtml))) {
+    addSeed(anchorMatch[1], anchorMatch[2]);
+  }
+
+  // 2) 兜底：只要 HTML 中出现 /channel/login，也先抓 login。
+  const hrefRegex =
+    /(?:https?:\/\/(?:www\.)?sullygnome\.com)?\/channel\/([A-Za-z0-9_]{2,30})(?:\/\d+)?/gi;
+
+  let hrefMatch: RegExpExecArray | null;
+  while ((hrefMatch = hrefRegex.exec(decodedHtml))) {
+    addSeed(hrefMatch[1], null);
+  }
+
+  // 3) 再兜底：从纯文本中解析 “显示名 (login)”。
+  const textNameRegex = /([^\s()]{1,60})\s*\(([A-Za-z0-9_]{2,30})\)/g;
+  let textMatch: RegExpExecArray | null;
+
+  while ((textMatch = textNameRegex.exec(pageText))) {
+    const displayName = textMatch[1]?.trim() || null;
+    const login = textMatch[2]?.trim() || '';
+
+    if (/SullyGnome|Twitch|stats|analysis|Bid|King|watched|viewers|rank/i.test(displayName || '')) {
+      continue;
+    }
+
+    addSeed(login, displayName);
   }
 
   return Array.from(seeds.values());

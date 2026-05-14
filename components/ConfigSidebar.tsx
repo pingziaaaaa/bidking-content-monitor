@@ -1,8 +1,7 @@
 import type { FormEvent, ReactNode } from 'react';
-import { useState } from 'react';
-import type { AccountItem, Platform } from '@/lib/mock-data';
-import { todayMetrics } from '@/lib/mock-data';
-import { platformStyles } from '@/components/utils';
+import { useMemo, useState } from 'react';
+import type { AccountItem, ContentItem, Platform } from '@/lib/mock-data';
+import { formatOptionalNumber, platformStyles } from '@/components/utils';
 
 type NewAccountInput = {
   platform: Platform;
@@ -13,6 +12,7 @@ type NewAccountInput = {
 type ConfigSidebarProps = {
   keywords: string[];
   accounts: AccountItem[];
+  contents: ContentItem[];
   onAddKeyword: (keyword: string) => void;
   onAddAccount: (account: NewAccountInput) => void;
   onDeleteKeyword: (keyword: string) => void;
@@ -60,11 +60,46 @@ function AccountRow({ account, onDelete }: { account: AccountItem; onDelete: (id
   );
 }
 
-export function ConfigSidebar({ keywords, accounts, onAddKeyword, onAddAccount, onDeleteKeyword, onDeleteAccount }: ConfigSidebarProps) {
+function sumMetric(contents: ContentItem[], platform: Platform, metric: keyof ContentItem['metrics']) {
+  return contents
+    .filter((item) => item.platform === platform)
+    .reduce((total, item) => total + (item.metrics[metric] ?? 0), 0);
+}
+
+function maxMetric(contents: ContentItem[], platform: Platform, metric: keyof ContentItem['metrics']) {
+  return contents
+    .filter((item) => item.platform === platform)
+    .reduce((max, item) => Math.max(max, item.metrics[metric] ?? 0), 0);
+}
+
+export function ConfigSidebar({ keywords, accounts, contents, onAddKeyword, onAddAccount, onDeleteKeyword, onDeleteAccount }: ConfigSidebarProps) {
   const [keywordInput, setKeywordInput] = useState('');
   const [accountPlatform, setAccountPlatform] = useState<Platform>('YouTube');
   const [accountUrl, setAccountUrl] = useState('');
   const [accountNote, setAccountNote] = useState('');
+
+  const todayMetrics = useMemo(() => [
+    {
+      label: 'YouTube播放量',
+      value: formatOptionalNumber(sumMetric(contents, 'YouTube', 'views')),
+      note: '来自当前内容表',
+    },
+    {
+      label: 'X曝光量',
+      value: formatOptionalNumber(sumMetric(contents, 'X', 'impressions')),
+      note: '来自当前内容表',
+    },
+    {
+      label: 'Twitch在线峰值',
+      value: formatOptionalNumber(maxMetric(contents, 'Twitch', 'peakViewers')),
+      note: '取单场最高峰值',
+    },
+    {
+      label: 'Twitch回看播放',
+      value: formatOptionalNumber(sumMetric(contents, 'Twitch', 'vodViews')),
+      note: '来自 VOD Views 汇总',
+    },
+  ], [contents]);
 
   function handleKeywordSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -155,9 +190,10 @@ export function ConfigSidebar({ keywords, accounts, onAddKeyword, onAddAccount, 
             <div key={metric.label} className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm text-slate-500">{metric.label}</p>
-                <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700">{metric.trend}</span>
+                <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">实时</span>
               </div>
               <p className="mt-2 text-2xl font-bold text-slate-950">{metric.value}</p>
+              <p className="mt-1 text-xs text-slate-400">{metric.note}</p>
             </div>
           ))}
         </div>

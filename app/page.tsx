@@ -1102,7 +1102,7 @@ export default function Home() {
           ) : null}
         </section>
 
-        <ConfigSidebar keywords={keywords} accounts={accounts} onAddKeyword={handleAddKeyword} onAddAccount={handleAddAccount} onDeleteKeyword={handleDeleteKeyword} onDeleteAccount={handleDeleteAccount} />
+        <ConfigSidebar keywords={keywords} accounts={accounts} contents={contentItems} onAddKeyword={handleAddKeyword} onAddAccount={handleAddAccount} onDeleteKeyword={handleDeleteKeyword} onDeleteAccount={handleDeleteAccount} />
       </main>
     </div>
   );

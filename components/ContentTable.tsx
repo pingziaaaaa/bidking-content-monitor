@@ -108,7 +108,7 @@ export function ContentTable({ contents, isScanning, onExport, onScan, onBatchRe
 
       <div
         ref={tableScrollRef}
-        className="overflow-x-auto"
+        className="content-table-scrollbar-hidden overflow-x-auto"
         onScroll={() => syncHorizontalScroll(tableScrollRef.current, topScrollRef.current)}
       >
         <table className="min-w-[1440px] w-full border-separate border-spacing-0 text-left text-sm">

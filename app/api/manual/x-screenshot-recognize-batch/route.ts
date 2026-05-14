@@ -82,15 +82,36 @@ function parseXLink(rawLink: string): { username: string; tweetId: string; norma
   }
 }
 
-function extractTextFromOpenAIResponse(response: OpenAIResponse): string {
-  if (!response.output || response.output.length === 0) {
+type GeminiResponse = {
+  output?: Array<{
+    content?: Array<{
+      type: string;
+      text?: string;
+    }>;
+  }>;
+  candidates?: Array<{
+    content?: Array<{
+      type: string;
+      text?: string;
+    }>;
+  }>;
+};
+
+function extractTextFromModelResponse(response: OpenAIResponse | GeminiResponse | unknown): string {
+  if (!response || typeof response !== 'object') {
     return '';
   }
 
-  return response.output
-    .flatMap((item) => item.content ?? [])
-    .filter((contentItem) => typeof contentItem.text === 'string')
-    .map((contentItem) => contentItem.text ?? '')
+  const entries = Array.isArray((response as any).output)
+    ? (response as any).output
+    : Array.isArray((response as any).candidates)
+    ? (response as any).candidates
+    : [];
+
+  return entries
+    .flatMap((item: any) => item.content ?? [])
+    .filter((contentItem: any) => typeof contentItem.text === 'string')
+    .map((contentItem: any) => contentItem.text ?? '')
     .join('\n');
 }
 
@@ -194,7 +215,7 @@ async function recognizeItemWithOpenAI(postImage: File, profileImage?: File) {
   }
 
   const responseData = (await response.json()) as OpenAIResponse;
-  const text = extractTextFromOpenAIResponse(responseData);
+  const text = extractTextFromModelResponse(responseData);
   const parsed = parseJsonFromText(text);
   if (!parsed || typeof parsed !== 'object') {
     throw new Error(`OpenAI 返回数据无法解析为 JSON。返回内容：${text}`);
@@ -203,11 +224,99 @@ async function recognizeItemWithOpenAI(postImage: File, profileImage?: File) {
   return parsed as Record<string, unknown>;
 }
 
+async function recognizeItemWithGemini(postImage: File, profileImage?: File) {
+  const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY 未配置，请在环境变量中设置后重试。');
+  }
+
+  const postImageDataUrl = await fileToDataUrl(postImage);
+  const inputs: Array<Record<string, unknown>> = [
+    { type: 'input_text', text: buildPrompt(Boolean(profileImage)) },
+    { type: 'input_image', image_url: postImageDataUrl },
+  ];
+
+  if (profileImage) {
+    const profileImageDataUrl = await fileToDataUrl(profileImage);
+    inputs.push({ type: 'input_image', image_url: profileImageDataUrl });
+  }
+
+  const requestBody = {
+    model: 'gemini-1.5',
+    input: [
+      {
+        role: 'user',
+        content: inputs,
+      },
+    ],
+  };
+
+  const response = await fetch('https://gemini.googleapis.com/v1/models/gemini-1.5:generateContent', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Gemini 请求失败：${response.status} ${body}`);
+  }
+
+  const responseData = (await response.json()) as GeminiResponse;
+  const text = extractTextFromModelResponse(responseData);
+  const parsed = parseJsonFromText(text);
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error(`Gemini 返回数据无法解析为 JSON。返回内容：${text}`);
+  }
+
+  return parsed as Record<string, unknown>;
+}
+
+async function recognizeItemWithFallback(postImage: File, profileImage?: File) {
+  const openAiKey = String(process.env.OPENAI_API_KEY || '').trim();
+  const geminiKey = String(process.env.GEMINI_API_KEY || '').trim();
+
+  if (!openAiKey && !geminiKey) {
+    throw new Error('OPENAI_API_KEY 和 GEMINI_API_KEY 均未配置，请先设置其中一个环境变量。');
+  }
+
+  let openAiError: Error | null = null;
+
+  if (openAiKey) {
+    try {
+      return await recognizeItemWithOpenAI(postImage, profileImage);
+    } catch (error) {
+      openAiError = error instanceof Error ? error : new Error(String(error));
+      if (!geminiKey) {
+        throw openAiError;
+      }
+    }
+  }
+
+  if (geminiKey) {
+    try {
+      return await recognizeItemWithGemini(postImage, profileImage);
+    } catch (error) {
+      const geminiError = error instanceof Error ? error : new Error(String(error));
+      if (openAiError) {
+        throw new Error(`OpenAI 识别失败：${openAiError.message}；Gemini 备用方案也失败：${geminiError.message}`);
+      }
+      throw geminiError;
+    }
+  }
+
+  throw new Error(openAiError?.message ?? '没有可用的识别服务。');
+}
+
 export async function POST(request: NextRequest) {
   const openAiKey = String(process.env.OPENAI_API_KEY || '').trim();
-  if (!openAiKey) {
+  const geminiKey = String(process.env.GEMINI_API_KEY || '').trim();
+  if (!openAiKey && !geminiKey) {
     return NextResponse.json(
-      { ok: false, message: 'OPENAI_API_KEY 未配置，请先设置环境变量。' },
+      { ok: false, message: 'OPENAI_API_KEY 和 GEMINI_API_KEY 均未配置，请先设置其中一个环境变量。' },
       { status: 500 },
     );
   }
@@ -267,7 +376,7 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const responseItem = await recognizeItemWithOpenAI(postImage, profileImage);
+      const responseItem = await recognizeItemWithFallback(postImage, profileImage);
       const rawUrl = responseItem.url === null || responseItem.url === undefined ? null : String(responseItem.url).trim();
       const parsedLink = rawUrl ? parseXLink(rawUrl) : null;
       const normalizedUrl = parsedLink?.normalizedUrl ?? null;

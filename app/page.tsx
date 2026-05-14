@@ -854,7 +854,7 @@ export default function Home() {
             <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-700 shadow-sm">{scanMessage}</div>
           ) : null}
           <PlatformFilter activeFilter={activeFilter} onFilterChange={setActiveFilter} />
-          <ContentTable contents={filteredContents} isScanning={isScanning} onExport={handleExport} onScan={handleScan} onBatchRecognizeX={handleOpenRecognizeModal} onDeleteContent={handleDeleteContent} onClearAllContents={handleClearAllContents} />
+          <ContentTable contents={filteredContents} onExport={handleExport} onBatchRecognizeX={handleOpenRecognizeModal} onDeleteContent={handleDeleteContent} onClearAllContents={handleClearAllContents} />
 
           {isImportModalOpen ? (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6">

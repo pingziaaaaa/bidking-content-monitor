@@ -146,6 +146,50 @@ function asMonitoringSupabaseClient(client: unknown): MonitoringSupabaseClient {
   return client as MonitoringSupabaseClient;
 }
 
+function formatBeijingTime(value: string | null | undefined) {
+  if (!value) {
+    return latestScanTime;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return latestScanTime;
+  }
+
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')} 北京时间`;
+}
+
+function getLatestContentTime(rows: ContentRow[]) {
+  let latest = 0;
+
+  for (const row of rows) {
+    const candidates = [row.created_at, row.discovered_at];
+
+    for (const candidate of candidates) {
+      const time = new Date(candidate).getTime();
+
+      if (Number.isFinite(time) && time > latest) {
+        latest = time;
+      }
+    }
+  }
+
+  return latest ? new Date(latest).toISOString() : null;
+}
+
 function parsePostRequest(value: unknown): MonitoringPostRequest | null {
   if (!isRecord(value) || typeof value.type !== 'string') {
     return null;
@@ -226,11 +270,13 @@ export async function GET() {
     const keywordRows: KeywordRow[] = rowsFromSupabase(keywordsResult.data);
     const accountRows: WatchAccountRow[] = rowsFromSupabase(accountsResult.data);
 
+    const latestContentTime = getLatestContentTime(contentRows);
+
     return NextResponse.json({
       contents: contentRows.map(mapContentRowToItem),
       keywords: keywordRows.map((row) => row.keyword),
       accounts: accountRows.map(mapAccountRowToItem),
-      latestScanTime,
+      latestScanTime: formatBeijingTime(latestContentTime),
       source: 'supabase',
     } satisfies MonitoringPayload);
   } catch (error) {

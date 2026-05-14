@@ -6,9 +6,7 @@ import { formatOptionalNumber, platformStyles } from '@/components/utils';
 
 type ContentTableProps = {
   contents: ContentItem[];
-  isScanning: boolean;
   onExport: () => void;
-  onScan: () => void;
   onBatchRecognizeX: () => void;
   onDeleteContent: (contentId: string) => void;
   onClearAllContents: () => void;
@@ -34,7 +32,7 @@ function formatDisplayTime(value: string) {
   return `${month}月${day}日 ${hour}:${minute}`;
 }
 
-export function ContentTable({ contents, isScanning, onExport, onScan, onBatchRecognizeX, onDeleteContent, onClearAllContents }: ContentTableProps) {
+export function ContentTable({ contents, onExport, onBatchRecognizeX, onDeleteContent, onClearAllContents }: ContentTableProps) {
   const topScrollRef = useRef<HTMLDivElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const isSyncingScrollRef = useRef(false);
@@ -86,14 +84,6 @@ export function ContentTable({ contents, isScanning, onExport, onScan, onBatchRe
             disabled={contents.length === 0}
           >
             导出当前
-          </button>
-          <button
-            className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-blue-200 transition hover:bg-blue-700 disabled:cursor-wait disabled:bg-blue-400"
-            type="button"
-            onClick={onScan}
-            disabled={isScanning}
-          >
-            {isScanning ? '巡查中...' : '立即巡查'}
           </button>
         </div>
       </div>

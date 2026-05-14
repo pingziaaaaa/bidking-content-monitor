@@ -297,7 +297,7 @@ export default function Home() {
     }
 
     setIsScanning(true);
-    setScanMessage('正在巡查 YouTube 和 X，请稍候...');
+    setScanMessage('正在巡查 YouTube、X 和 Twitch，请稍候...');
 
     try {
       const results = [];
@@ -351,6 +351,27 @@ export default function Home() {
         }
       } catch (error) {
         results.push(`X: ${error instanceof Error ? error.message : '扫描失败'}`);
+      }
+
+      // 最后调用 Twitch
+      try {
+        const twitchResponse = await fetch('/api/scan/twitch', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ days: 3, maxChannels: 10 }),
+        });
+
+        const twitchResult = await twitchResponse.json();
+
+        if (!twitchResponse.ok || !twitchResult.ok) {
+          results.push(`Twitch: ${twitchResult.message || twitchResult.error || '扫描失败'}`);
+        } else {
+          results.push(`Twitch: ${twitchResult.message}`);
+        }
+      } catch (error) {
+        results.push(`Twitch: ${error instanceof Error ? error.message : '扫描失败'}`);
       }
 
       // 重新加载数据

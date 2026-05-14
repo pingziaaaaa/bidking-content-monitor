@@ -105,13 +105,88 @@ function parseDateString(value: string | null): string {
     return new Date().toISOString();
   }
 
-  const parsed = Date.parse(value);
-  if (Number.isFinite(parsed)) {
-    return new Date(parsed).toISOString();
+  const raw = value.trim();
+
+  if (!raw) {
+    return new Date().toISOString();
+  }
+
+  const cleaned = raw
+    .replace(/[\u3000]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/・/g, '·')
+    .replace(/•/g, '·')
+    .replace(/\s+Views?.*$/i, '')
+    .replace(/\s+Impressions?.*$/i, '')
+    .trim();
+
+  const directParsed = Date.parse(cleaned);
+  if (Number.isFinite(directParsed)) {
+    return new Date(directParsed).toISOString();
+  }
+
+  // X 英文格式：6:37 PM · May 13, 2026
+  const englishXMatch = cleaned.match(/(\d{1,2}:\d{2})\s*(AM|PM)\s*·\s*([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})/i);
+  if (englishXMatch) {
+    const [, time, ampm, datePart] = englishXMatch;
+    const parsed = Date.parse(`${datePart} ${time} ${ampm}`);
+
+    if (Number.isFinite(parsed)) {
+      return new Date(parsed).toISOString();
+    }
+  }
+
+  // X 英文格式反向：May 13, 2026 · 6:37 PM
+  const englishReverseMatch = cleaned.match(/([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})\s*·\s*(\d{1,2}:\d{2})\s*(AM|PM)/i);
+  if (englishReverseMatch) {
+    const [, datePart, time, ampm] = englishReverseMatch;
+    const parsed = Date.parse(`${datePart} ${time} ${ampm}`);
+
+    if (Number.isFinite(parsed)) {
+      return new Date(parsed).toISOString();
+    }
+  }
+
+  // 中文 / 日文格式：2026年5月14日 17:21、5月14日 17:21、2026年5月14日 下午5:21
+  const cjkMatch = cleaned.match(/(?:(\d{4})年)?\s*(\d{1,2})月\s*(\d{1,2})日(?:[^\d]*(上午|下午|午前|午後))?\s*(\d{1,2}):(\d{2})/);
+  if (cjkMatch) {
+    const now = new Date();
+    const year = Number(cjkMatch[1] || now.getFullYear());
+    const month = Number(cjkMatch[2]);
+    const day = Number(cjkMatch[3]);
+    const period = cjkMatch[4] || '';
+    let hour = Number(cjkMatch[5]);
+    const minute = Number(cjkMatch[6]);
+
+    if ((period === '下午' || period === '午後') && hour < 12) {
+      hour += 12;
+    }
+
+    if ((period === '上午' || period === '午前') && hour === 12) {
+      hour = 0;
+    }
+
+    const parsed = new Date(year, month - 1, day, hour, minute, 0).getTime();
+
+    if (Number.isFinite(parsed)) {
+      return new Date(parsed).toISOString();
+    }
+  }
+
+  // 数字格式：2026-05-14 17:21、2026/05/14 17:21
+  const numericMatch = cleaned.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2})/);
+  if (numericMatch) {
+    const [, y, m, d, h, min] = numericMatch;
+    const parsed = new Date(Number(y), Number(m) - 1, Number(d), Number(h), Number(min), 0).getTime();
+
+    if (Number.isFinite(parsed)) {
+      return new Date(parsed).toISOString();
+    }
   }
 
   return new Date().toISOString();
 }
+
 
 export async function POST(request: NextRequest) {
   const requestBody = await request.json().catch(() => null);

@@ -31,3 +31,12 @@ a {
 .content-table-scrollbar-hidden::-webkit-scrollbar {
   display: none;
 }
+
+.content-table-scrollbar-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.content-table-scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}

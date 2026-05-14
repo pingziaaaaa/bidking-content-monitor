@@ -138,45 +138,54 @@ function buildPrompt(profileIncluded: boolean) {
   return promptLines.join(' ');
 }
 
+async function fileToDataUrl(file: File) {
+  const arrayBuffer = await file.arrayBuffer();
+  const base64 = Buffer.from(arrayBuffer).toString('base64');
+  const mimeType = file.type || (() => {
+    const extension = String(file.name).split('.').pop()?.toLowerCase();
+    if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg';
+    if (extension === 'png') return 'image/png';
+    if (extension === 'webp') return 'image/webp';
+    if (extension === 'gif') return 'image/gif';
+    return 'application/octet-stream';
+  })();
+  return `data:${mimeType};base64,${base64}`;
+}
+
 async function recognizeItemWithOpenAI(postImage: File, profileImage?: File) {
   const apiKey = String(process.env.OPENAI_API_KEY || '').trim();
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY 未配置，请在环境变量中设置后重试。');
   }
 
-  const formData = new FormData();
-  formData.append('model', 'gpt-4.1-mini');
-
-  const messageContent: Array<Record<string, unknown>> = [
+  const postImageDataUrl = await fileToDataUrl(postImage);
+  const inputs: Array<Record<string, unknown>> = [
     { type: 'input_text', text: buildPrompt(Boolean(profileImage)) },
-    { type: 'input_image', image_url: `attachment://${postImage.name}` },
+    { type: 'input_image', image_url: postImageDataUrl },
   ];
 
   if (profileImage) {
-    messageContent.push({ type: 'input_image', image_url: `attachment://${profileImage.name}` });
+    const profileImageDataUrl = await fileToDataUrl(profileImage);
+    inputs.push({ type: 'input_image', image_url: profileImageDataUrl });
   }
 
-  formData.append(
-    'input',
-    JSON.stringify([
+  const requestBody = {
+    model: 'gpt-4.1-mini',
+    input: [
       {
         role: 'user',
-        content: messageContent,
+        content: inputs,
       },
-    ]),
-  );
-
-  formData.append('file', postImage, postImage.name);
-  if (profileImage) {
-    formData.append('file', profileImage, profileImage.name);
-  }
+    ],
+  };
 
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
     },
-    body: formData,
+    body: JSON.stringify(requestBody),
   });
 
   if (!response.ok) {
@@ -188,7 +197,7 @@ async function recognizeItemWithOpenAI(postImage: File, profileImage?: File) {
   const text = extractTextFromOpenAIResponse(responseData);
   const parsed = parseJsonFromText(text);
   if (!parsed || typeof parsed !== 'object') {
-    throw new Error('OpenAI 返回数据无法解析为 JSON。');
+    throw new Error(`OpenAI 返回数据无法解析为 JSON。返回内容：${text}`);
   }
 
   return parsed as Record<string, unknown>;

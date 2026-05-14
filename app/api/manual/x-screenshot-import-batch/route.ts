@@ -100,6 +100,44 @@ async function fetchHistoricalFollowers(
 }
 
 
+function toBeijingDisplayIso(year: number, month: number, day: number, hour: number, minute: number) {
+  // 截图里的 X 时间按北京时间展示时间处理。
+  // Supabase 存 timestamptz，所以这里转成 UTC ISO；前端按北京时间显示时会还原为截图时间。
+  const utcTime = Date.UTC(year, month - 1, day, hour - 8, minute, 0);
+  return new Date(utcTime).toISOString();
+}
+
+function monthNameToNumber(value: string) {
+  const map: Record<string, number> = {
+    jan: 1,
+    january: 1,
+    feb: 2,
+    february: 2,
+    mar: 3,
+    march: 3,
+    apr: 4,
+    april: 4,
+    may: 5,
+    jun: 6,
+    june: 6,
+    jul: 7,
+    july: 7,
+    aug: 8,
+    august: 8,
+    sep: 9,
+    sept: 9,
+    september: 9,
+    oct: 10,
+    october: 10,
+    nov: 11,
+    november: 11,
+    dec: 12,
+    december: 12,
+  };
+
+  return map[value.toLowerCase()] ?? 0;
+}
+
 function parseDateString(value: string | null): string {
   if (!value) {
     return new Date().toISOString();
@@ -120,30 +158,39 @@ function parseDateString(value: string | null): string {
     .replace(/\s+Impressions?.*$/i, '')
     .trim();
 
-  const directParsed = Date.parse(cleaned);
-  if (Number.isFinite(directParsed)) {
-    return new Date(directParsed).toISOString();
-  }
-
   // X 英文格式：6:37 PM · May 13, 2026
-  const englishXMatch = cleaned.match(/(\d{1,2}:\d{2})\s*(AM|PM)\s*·\s*([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})/i);
+  const englishXMatch = cleaned.match(/(\d{1,2}):(\d{2})\s*(AM|PM)\s*·\s*([A-Za-z]{3,9})\s+(\d{1,2}),\s*(\d{4})/i);
   if (englishXMatch) {
-    const [, time, ampm, datePart] = englishXMatch;
-    const parsed = Date.parse(`${datePart} ${time} ${ampm}`);
+    let hour = Number(englishXMatch[1]);
+    const minute = Number(englishXMatch[2]);
+    const ampm = englishXMatch[3].toUpperCase();
+    const month = monthNameToNumber(englishXMatch[4]);
+    const day = Number(englishXMatch[5]);
+    const year = Number(englishXMatch[6]);
 
-    if (Number.isFinite(parsed)) {
-      return new Date(parsed).toISOString();
+    if (ampm === 'PM' && hour < 12) hour += 12;
+    if (ampm === 'AM' && hour === 12) hour = 0;
+
+    if (month) {
+      return toBeijingDisplayIso(year, month, day, hour, minute);
     }
   }
 
   // X 英文格式反向：May 13, 2026 · 6:37 PM
-  const englishReverseMatch = cleaned.match(/([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})\s*·\s*(\d{1,2}:\d{2})\s*(AM|PM)/i);
+  const englishReverseMatch = cleaned.match(/([A-Za-z]{3,9})\s+(\d{1,2}),\s*(\d{4})\s*·\s*(\d{1,2}):(\d{2})\s*(AM|PM)/i);
   if (englishReverseMatch) {
-    const [, datePart, time, ampm] = englishReverseMatch;
-    const parsed = Date.parse(`${datePart} ${time} ${ampm}`);
+    const month = monthNameToNumber(englishReverseMatch[1]);
+    const day = Number(englishReverseMatch[2]);
+    const year = Number(englishReverseMatch[3]);
+    let hour = Number(englishReverseMatch[4]);
+    const minute = Number(englishReverseMatch[5]);
+    const ampm = englishReverseMatch[6].toUpperCase();
 
-    if (Number.isFinite(parsed)) {
-      return new Date(parsed).toISOString();
+    if (ampm === 'PM' && hour < 12) hour += 12;
+    if (ampm === 'AM' && hour === 12) hour = 0;
+
+    if (month) {
+      return toBeijingDisplayIso(year, month, day, hour, minute);
     }
   }
 
@@ -158,30 +205,22 @@ function parseDateString(value: string | null): string {
     let hour = Number(cjkMatch[5]);
     const minute = Number(cjkMatch[6]);
 
-    if ((period === '下午' || period === '午後') && hour < 12) {
-      hour += 12;
-    }
+    if ((period === '下午' || period === '午後') && hour < 12) hour += 12;
+    if ((period === '上午' || period === '午前') && hour === 12) hour = 0;
 
-    if ((period === '上午' || period === '午前') && hour === 12) {
-      hour = 0;
-    }
-
-    const parsed = new Date(year, month - 1, day, hour, minute, 0).getTime();
-
-    if (Number.isFinite(parsed)) {
-      return new Date(parsed).toISOString();
-    }
+    return toBeijingDisplayIso(year, month, day, hour, minute);
   }
 
   // 数字格式：2026-05-14 17:21、2026/05/14 17:21
   const numericMatch = cleaned.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2})/);
   if (numericMatch) {
     const [, y, m, d, h, min] = numericMatch;
-    const parsed = new Date(Number(y), Number(m) - 1, Number(d), Number(h), Number(min), 0).getTime();
+    return toBeijingDisplayIso(Number(y), Number(m), Number(d), Number(h), Number(min));
+  }
 
-    if (Number.isFinite(parsed)) {
-      return new Date(parsed).toISOString();
-    }
+  const directParsed = Date.parse(cleaned);
+  if (Number.isFinite(directParsed)) {
+    return new Date(directParsed).toISOString();
   }
 
   return new Date().toISOString();

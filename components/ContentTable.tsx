@@ -60,8 +60,8 @@ export function ContentTable({ contents, isScanning, onExport, onScan, onBatchRe
     <section className="overflow-visible rounded-3xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-lg font-bold text-slate-950">最近24小时内容</h2>
-          <p className="mt-1 text-sm text-slate-500">按平台优先级展示，平台内按发布时间倒序排列。</p>
+          <h2 className="text-lg font-bold text-slate-950">最近48小时内容</h2>
+          <p className="mt-1 text-sm text-slate-500">仅展示当前时间往前 48 小时内的内容，按平台优先级展示，平台内按发布时间倒序排列。</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button

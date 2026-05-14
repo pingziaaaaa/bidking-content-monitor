@@ -68,6 +68,7 @@ type SupabaseSelectBuilder<Row> = {
   order(column: string, options: { ascending: boolean }): Promise<SupabaseListResult<Row>>;
   single(): Promise<SupabaseSingleResult<Row>>;
   limit(count: number): Promise<SupabaseListResult<Row>>;
+  gte(column: string, value: string): SupabaseSelectBuilder<Row>;
 };
 
 type SupabaseTableBuilder<Row, Insert> = {
@@ -205,9 +206,12 @@ export async function GET() {
 
   try {
     const db = asMonitoringSupabaseClient(supabase);
+    const since48Hours = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+
     const contentsQuery = db
       .from('content_items')
       .select('id, platform, platform_content_id, title, url, creator, source, discovered_at, followers, views, impressions, engagements, peak_viewers, vod_views, created_at')
+      .gte('discovered_at', since48Hours)
       .order('discovered_at', { ascending: false });
     const keywordsQuery = db.from('monitor_keywords').select('id, keyword, created_at').order('created_at', { ascending: true });
     const accountsQuery = db.from('monitored_accounts').select('id, platform, name, url, status, note, created_at').order('created_at', { ascending: false });

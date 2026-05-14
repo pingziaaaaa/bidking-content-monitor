@@ -222,6 +222,19 @@ function isWithinDays(iso: string | null, days: number): boolean {
   return time >= min && time <= max;
 }
 
+function isWithinHours(iso: string | null, hours: number): boolean {
+  if (!iso) return false;
+
+  const time = new Date(iso).getTime();
+  if (!Number.isFinite(time)) return false;
+
+  const now = Date.now();
+  const min = now - hours * 60 * 60 * 1000;
+  const max = now + 60 * 60 * 1000;
+
+  return time >= min && time <= max;
+}
+
 async function fetchHtmlWithRetry(url: string, retries = 3): Promise<{ status: number; html: string }> {
   let lastError: unknown = null;
 
@@ -591,12 +604,16 @@ async function upsertTwitchContent(item: {
 async function parseRequest(request: Request) {
   let days = 3;
   let maxChannels = 20;
+  let hours = 48;
   let dryRun = false;
 
   try {
     const body = await request.json();
 
     if (body?.days === 7) days = 7;
+    if (typeof body?.hours === 'number' && body.hours > 0) {
+      hours = Math.min(Math.floor(body.hours), 24 * 7);
+    }
     if (typeof body?.maxChannels === 'number' && body.maxChannels > 0) {
       maxChannels = Math.min(Math.floor(body.maxChannels), 50);
     }
@@ -605,7 +622,7 @@ async function parseRequest(request: Request) {
     // allow empty body
   }
 
-  return { days, maxChannels, dryRun };
+  return { days, maxChannels, hours, dryRun };
 }
 
 export async function POST(request: Request) {
@@ -616,7 +633,7 @@ export async function POST(request: Request) {
     return jsonError('Twitch Client ID / Secret 未配置');
   }
 
-  const { days, maxChannels, dryRun } = await parseRequest(request);
+  const { days, maxChannels, hours, dryRun } = await parseRequest(request);
   const warnings: string[] = [];
   const failedChannels: Array<{ login: string; error: string }> = [];
   const processedItems: Array<{
@@ -636,6 +653,7 @@ export async function POST(request: Request) {
   let updatedCount = 0;
   let matchedStreams = 0;
   let skippedNoVodMatch = 0;
+  let skippedOutOfWindow = 0;
   let scannedChannels = 0;
 
   try {
@@ -695,6 +713,13 @@ export async function POST(request: Request) {
             continue;
           }
 
+          const effectivePublishedAt = matchedVod.created_at || row.startIso;
+
+          if (!isWithinHours(effectivePublishedAt, hours)) {
+            skippedOutOfWindow += 1;
+            continue;
+          }
+
           matchedStreams += 1;
 
           const action = dryRun
@@ -735,18 +760,20 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       days,
+      hours,
       dryRun,
       scannedChannels,
       matchedStreams,
       insertedCount,
       updatedCount,
       skippedNoVodMatch,
+      skippedOutOfWindow,
       failedChannels,
       warnings,
       items: processedItems.slice(0, 50),
       message: dryRun
-        ? `Twitch：Dry run 完成，扫描 ${scannedChannels} 个频道，匹配 ${matchedStreams} 条 VOD。`
-        : `Twitch：SullyGnome + Twitch VOD 巡查完成，扫描 ${scannedChannels} 个频道，匹配 ${matchedStreams} 条，新增 ${insertedCount} 个，更新 ${updatedCount} 个。`,
+        ? `Twitch：Dry run 完成，扫描 ${scannedChannels} 个频道，近 ${hours} 小时匹配 ${matchedStreams} 条 VOD。`
+        : `Twitch：SullyGnome + Twitch VOD 巡查完成，扫描 ${scannedChannels} 个频道，近 ${hours} 小时匹配 ${matchedStreams} 条，新增 ${insertedCount} 个，更新 ${updatedCount} 个。`,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -754,12 +781,14 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: false,
       days,
+      hours,
       dryRun,
       scannedChannels,
       matchedStreams,
       insertedCount,
       updatedCount,
       skippedNoVodMatch,
+      skippedOutOfWindow,
       failedChannels,
       warnings,
       items: processedItems,
@@ -771,6 +800,6 @@ export async function POST(request: Request) {
 export async function GET() {
   return NextResponse.json({
     ok: true,
-    message: 'Use POST /api/scan/twitch with optional body {"days":3,"maxChannels":20,"dryRun":true}',
+    message: 'Use POST /api/scan/twitch with optional body {"days":3,"maxChannels":20,"hours":48,"dryRun":true}',
   });
 }

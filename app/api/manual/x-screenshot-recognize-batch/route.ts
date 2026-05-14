@@ -22,44 +22,13 @@ type RecognizeResult = {
   warning: string | null;
 };
 
-type GeminiResponse = {
-  candidates?: Array<{
-    content?: Array<{
-      parts?: Array<{
-        text?: string;
-      }>;
+type VisionResponse = {
+  responses: Array<{
+    textAnnotations?: Array<{
+      description?: string;
     }>;
   }>;
 };
-
-function extractTextFromModelResponse(response: GeminiResponse | unknown): string {
-  if (!response || typeof response !== 'object') {
-    return '';
-  }
-
-  const candidates = (response as GeminiResponse).candidates ?? [];
-  return candidates
-    .flatMap((candidate) => candidate.content ?? [])
-    .flatMap((content) => content.parts ?? [])
-    .map((part) => part.text ?? '')
-    .join('\n');
-}
-
-function parseJsonFromText(rawText: string): unknown | null {
-  const trimmed = rawText.trim();
-  const jsonMatch = trimmed.match(/```json\s*([\s\S]*?)\s*```/i);
-  const candidate = jsonMatch ? jsonMatch[1].trim() : trimmed;
-
-  if (!candidate) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(candidate);
-  } catch {
-    return null;
-  }
-}
 
 function parseNumberValue(value: unknown): number | null {
   if (value === null || value === undefined) {
@@ -88,80 +57,131 @@ function parseNumberValue(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function parseXLink(rawLink: string): { username: string; tweetId: string; normalizedUrl: string } | null {
+function parseXLink(text: string): { username: string; tweetId: string; normalizedUrl: string } | null {
+  const urlRegex = /(?:https?:\/\/)?(?:www\.)?(?:x\.com|twitter\.com)\/([^\/\s]+)\/status\/(\d+)/i;
+  const match = text.match(urlRegex);
+  if (!match) {
+    return null;
+  }
+
+  const username = match[1];
+  const tweetId = match[2];
+  const normalizedUrl = `https://x.com/${username}/status/${tweetId}`;
+
+  return { username, tweetId, normalizedUrl };
+}
+
+function parseUsername(text: string): string | null {
+  const linkMatch = parseXLink(text);
+  if (linkMatch) {
+    return linkMatch.username;
+  }
+
+  const usernameRegex = /@([a-zA-Z0-9_]+)/;
+  const match = text.match(usernameRegex);
+  return match ? match[1] : null;
+}
+
+function parsePublishedAt(text: string): string | null {
+  const timeRegex = /(\d{1,2}:\d{2}\s*(?:AM|PM))\s*·\s*([A-Za-z]{3}\s+\d{1,2},\s*\d{4})/i;
+  const match = text.match(timeRegex);
+  if (!match) {
+    return null;
+  }
+
+  const timeStr = match[1];
+  const dateStr = match[2];
+  const dateTimeStr = `${dateStr} ${timeStr}`;
+
   try {
-    const parsedUrl = new URL(rawLink.trim());
-    const hostname = parsedUrl.hostname.toLowerCase();
-    if (!['x.com', 'www.x.com', 'twitter.com', 'www.twitter.com'].includes(hostname)) {
-      return null;
-    }
-
-    const path = parsedUrl.pathname.replace(/\/+/g, '/').replace(/\/$|^\//g, '');
-    const match = path.match(/^([^/]+)\/status\/(\d+)/);
-    if (!match) {
-      return null;
-    }
-
-    const username = match[1];
-    const tweetId = match[2];
-    const normalizedUrl = `https://x.com/${username}/status/${tweetId}`;
-
-    return { username, tweetId, normalizedUrl };
+    const date = new Date(dateTimeStr);
+    return date.toISOString();
   } catch {
     return null;
   }
 }
 
-function buildPrompt(profileIncluded: boolean) {
-  const promptLines = [
-    '你是一个结构化信息抽取助手。请从 X 帖子截图和可选的主页截图中提取下面字段。',
-    '输出必须是一个单独的 JSON 对象，不要添加任何解释性文字、Markdown、代码块或额外文本。',
-    '只使用在截图中可见的信息。',
-    '如果截图里有浏览器地址栏，请识别 X 帖子链接和 tweet id；如果没有地址栏，则 url 和 platform_content_id 应为 null。',
-    '仍然需要识别标题/正文 title、发布时间 published_at、Views / Impressions、name、username。',
-    '如果提供了主页截图，则从主页截图识别 followers。',
-    '请返回以下字段：',
-    '{',
-    '  "url": null 或 "https://x.com/{username}/status/{tweetId}",',
-    '  "platform_content_id": null 或 "{tweetId}",',
-    '  "username": null 或 "{username}",',
-    '  "name": null 或 "作者名称",',
-    '  "title": null 或 "帖子正文/标题",',
-    '  "published_at": null 或 "发布时间文本",',
-    '  "followers": null 或 数字,',
-    '  "impressions": null 或 数字',
-    '}',
-  ];
-
-  if (profileIncluded) {
-    promptLines.push('主页截图请用于识别作者粉丝数 followers。');
+function parseImpressions(text: string): number | null {
+  const viewsRegex = /(\d+(?:\.\d+)?[KMB]?)\s*Views?/i;
+  const match = text.match(viewsRegex);
+  if (!match) {
+    return null;
   }
 
-  return promptLines.join(' ');
+  return parseNumberValue(match[1]);
 }
 
-async function recognizeItemWithGemini(postImageBase64: string, profileImageBase64?: string) {
-  const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
+function parseFollowers(text: string): number | null {
+  const followersRegex = /(\d+(?:\.\d+)?[KMB]?)\s*Followers?/i;
+  const match = text.match(followersRegex);
+  if (!match) {
+    return null;
+  }
+
+  return parseNumberValue(match[1]);
+}
+
+function extractTitle(text: string): string {
+  // 排除常见 UI 文案
+  const excludePatterns = [
+    /Home/i,
+    /Explore/i,
+    /Post/i,
+    /Reply/i,
+    /Show translation/i,
+    /Views?/i,
+    /Followers?/i,
+    /Following/i,
+    /Likes?/i,
+    /Retweets?/i,
+    /Shares?/i,
+    /Bookmarks?/i,
+    /·/g,
+    /\d{1,2}:\d{2}\s*(?:AM|PM)/i,
+    /[A-Za-z]{3}\s+\d{1,2},\s*\d{4}/i,
+  ];
+
+  let cleaned = text;
+  for (const pattern of excludePatterns) {
+    cleaned = cleaned.replace(pattern, '');
+  }
+
+  // 移除多余空格和换行
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+
+  // 如果太短或太长，可能是误识别
+  if (cleaned.length < 5 || cleaned.length > 500) {
+    return '待补充';
+  }
+
+  return cleaned || '待补充';
+}
+
+async function performOCR(base64: string): Promise<string> {
+  const apiKey = String(process.env.GOOGLE_VISION_API_KEY || '').trim();
   if (!apiKey) {
-    throw new Error('未配置 GEMINI_API_KEY');
+    throw new Error('未配置 GOOGLE_VISION_API_KEY，无法识别截图');
   }
 
-  const contents = [{
-    parts: [
-      { text: buildPrompt(Boolean(profileImageBase64)) },
-      { inline_data: { mime_type: 'image/jpeg', data: postImageBase64 } },
-    ],
-  }];
-
-  if (profileImageBase64) {
-    contents[0].parts.push({ inline_data: { mime_type: 'image/jpeg', data: profileImageBase64 } });
-  }
+  // 移除 data:image 前缀
+  const cleanBase64 = base64.replace(/^data:image\/[a-z]+;base64,/, '');
 
   const requestBody = {
-    contents,
+    requests: [
+      {
+        image: {
+          content: cleanBase64,
+        },
+        features: [
+          {
+            type: 'TEXT_DETECTION',
+          },
+        ],
+      },
+    ],
   };
 
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+  const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -171,24 +191,51 @@ async function recognizeItemWithGemini(postImageBase64: string, profileImageBase
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`Gemini 识别失败：${response.status} ${body}`);
+    throw new Error(`Vision OCR 识别失败：${response.status} ${body}`);
   }
 
-  const responseData = (await response.json()) as GeminiResponse;
-  const text = extractTextFromModelResponse(responseData);
-  const parsed = parseJsonFromText(text);
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error(`Gemini 未返回有效识别结果`);
+  const responseData = (await response.json()) as VisionResponse;
+  const text = responseData.responses?.[0]?.textAnnotations?.[0]?.description?.trim();
+  if (!text) {
+    throw new Error('Vision OCR 未返回有效文本');
   }
 
-  return parsed as Record<string, unknown>;
+  return text;
+}
+
+async function recognizeItem(postImageBase64: string, profileImageBase64?: string): Promise<Record<string, unknown>> {
+  const postText = await performOCR(postImageBase64);
+  let profileText = '';
+  if (profileImageBase64) {
+    profileText = await performOCR(profileImageBase64);
+  }
+
+  const fullText = `${postText}\n${profileText}`;
+
+  const linkInfo = parseXLink(fullText);
+  const username = parseUsername(fullText);
+  const publishedAt = parsePublishedAt(postText);
+  const impressions = parseImpressions(postText);
+  const followers = profileImageBase64 ? parseFollowers(profileText) : null;
+  const title = extractTitle(postText);
+
+  return {
+    url: linkInfo?.normalizedUrl || null,
+    platform_content_id: linkInfo?.tweetId || null,
+    username,
+    name: null,
+    title,
+    published_at: publishedAt,
+    followers,
+    impressions,
+  };
 }
 
 export async function POST(request: NextRequest) {
-  const geminiKey = String(process.env.GEMINI_API_KEY || '').trim();
-  if (!geminiKey) {
+  const visionKey = String(process.env.GOOGLE_VISION_API_KEY || '').trim();
+  if (!visionKey) {
     return NextResponse.json(
-      { ok: false, message: '未配置 GEMINI_API_KEY' },
+      { ok: false, message: '未配置 GOOGLE_VISION_API_KEY，无法识别截图' },
       { status: 500 },
     );
   }
@@ -226,7 +273,7 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const responseItem = await recognizeItemWithGemini(item.postImageBase64, item.profileImageBase64);
+      const responseItem = await recognizeItem(item.postImageBase64, item.profileImageBase64);
       const rawUrl = responseItem.url === null || responseItem.url === undefined ? null : String(responseItem.url).trim();
       const parsedLink = rawUrl ? parseXLink(rawUrl) : null;
       const normalizedUrl = parsedLink?.normalizedUrl ?? null;
@@ -238,9 +285,10 @@ export async function POST(request: NextRequest) {
       const followers = parseNumberValue(responseItem.followers);
       const impressions = parseNumberValue(responseItem.impressions);
 
-      const creator = username ? `@${username.replace(/^@+/, '')}` : name ? String(name) : '';
+      const creator = username ? `@${username.replace(/^@+/, '')}` : name ? String(name) : '待补充';
       const hasUrl = Boolean(normalizedUrl);
-      const status = hasUrl ? 'success' : 'partial';
+      const hasContent = Boolean(title && title !== '待补充') || Boolean(impressions) || Boolean(publishedAt) || Boolean(followers);
+      const status = hasUrl ? 'success' : hasContent ? 'partial' : 'failed';
       const source = hasUrl ? '截图识别' : '截图识别缺链接';
 
       results.push({

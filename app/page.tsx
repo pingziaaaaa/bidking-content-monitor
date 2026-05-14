@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { AppHeader } from '@/components/AppHeader';
 import { ConfigSidebar } from '@/components/ConfigSidebar';
 import { ContentTable } from '@/components/ContentTable';
@@ -59,6 +59,7 @@ function PasteArea({ label, value, onPaste, onClear, required }: {
   required?: boolean;
 }) {
   const [isFocused, setIsFocused] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handlePaste = async (event: React.ClipboardEvent) => {
     event.preventDefault();
@@ -70,13 +71,25 @@ function PasteArea({ label, value, onPaste, onClear, required }: {
         if (file) {
           const reader = new FileReader();
           reader.onload = () => {
-            const base64 = (reader.result as string).split(',')[1];
-            onPaste(base64);
+            const result = reader.result as string;
+            onPaste(result);
           };
           reader.readAsDataURL(file);
         }
         break;
       }
+    }
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        onPaste(result);
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -99,8 +112,8 @@ function PasteArea({ label, value, onPaste, onClear, required }: {
         {value ? (
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <img src={`data:image/jpeg;base64,${value}`} alt="预览" className="h-16 w-16 rounded-lg object-cover" />
-              <span className="text-green-700">已粘贴</span>
+              <img src={value} alt="预览" className="h-16 w-16 rounded-lg object-cover" />
+              <span className="text-green-700">已粘贴截图</span>
             </div>
             <button
               type="button"
@@ -111,14 +124,28 @@ function PasteArea({ label, value, onPaste, onClear, required }: {
             </button>
           </div>
         ) : (
-          <div className="flex h-full items-center justify-center text-center text-slate-500">
+          <div className="flex h-full flex-col items-center justify-center text-center text-slate-500">
             <div>
-              <p>点击这里后按 Ctrl+V 粘贴截图</p>
-              <p className="text-xs mt-1">支持复制图片后直接粘贴</p>
+              <p>粘贴截图到这里，或选择文件</p>
+              <p className="text-xs mt-1">支持 Ctrl+V 粘贴或点击选择文件</p>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="mt-2 rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 transition hover:border-blue-300 hover:text-blue-600"
+              >
+                选择文件
+              </button>
             </div>
           </div>
         )}
       </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileChange}
+        className="hidden"
+      />
     </div>
   );
 }
@@ -843,7 +870,7 @@ export default function Home() {
                   <div>
                     <h3 className="text-xl font-bold text-slate-950">批量识别 X</h3>
                     <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-                      支持直接复制截图后 Ctrl+V 粘贴。Post 截图必填，主页截图选填。系统将从图片中识别 X 链接、username、tweet id、正文、发布时间、Impressions 和 Followers。
+                      支持直接复制截图后 Ctrl+V 粘贴，或选择文件上传。Post 截图必填，主页截图选填。系统将从图片中识别 X 链接、username、tweet id、正文、发布时间、Impressions 和 Followers。
                     </p>
                   </div>
                   <button

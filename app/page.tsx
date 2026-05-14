@@ -878,19 +878,20 @@ export default function Home() {
             <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.24em] text-blue-600">Content Monitor</p>
-                <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-950">当前内容监控</h2>
+                <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-950">BIDKING One-Off Archive</h2>
                 <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-500">
-                  自动每天北京时间19:00巡查 YouTube / X / Twitch 三个平台，关键词匹配 + 指定账号双通道发现。右侧可手动巡查。
+                  固定展示 2026年5月8日20:00 至 2026年5月12日16:33 北京时间之间的历史内容数据。
                 </p>
               </div>
-              <button
+              {/* 隐藏手动巡查按钮，因为这是历史归档站 */}
+              {/* <button
                 className="rounded-full bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-sm shadow-blue-200 transition hover:bg-blue-700 disabled:cursor-wait disabled:bg-blue-400"
                 type="button"
                 onClick={handleScan}
                 disabled={isScanning}
               >
                 {isScanning ? '巡查中...' : '手动巡查'}
-              </button>
+              </button> */}
             </div>
           </div>
 

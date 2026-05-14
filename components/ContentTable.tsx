@@ -146,13 +146,14 @@ export function ContentTable({
       <div className="sticky top-[72px] z-40 overflow-hidden rounded-t-3xl border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h2 className="text-lg font-bold text-slate-950">最近48小时内容</h2>
+            <h2 className="text-lg font-bold text-slate-950">5月8日-5月12日历史内容</h2>
             <p className="mt-1 text-sm text-slate-500">
-              仅展示当前时间往前 48 小时内的内容，按平台优先级展示，平台内按发布时间倒序排列。
+              固定展示 2026年5月8日20:00 至 2026年5月12日16:33 北京时间之间的数据，按平台优先级展示，平台内按发布时间倒序排列。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button
+            {/* 隐藏批量识别 X 和清空内容按钮，因为这是历史归档站 */}
+            {/* <button
               className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700"
               type="button"
               onClick={onBatchRecognizeX}
@@ -166,7 +167,7 @@ export function ContentTable({
               disabled={contents.length === 0}
             >
               清空内容
-            </button>
+            </button> */}
             <button
               className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               type="button"

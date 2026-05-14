@@ -32,7 +32,7 @@ export function SummaryBanner({ contents, latestScanTime }: SummaryBannerProps) 
           ))}
         </div>
         <div className="rounded-2xl bg-blue-600 px-5 py-4 text-white shadow-sm shadow-blue-200">
-          <p className="text-xs uppercase tracking-[0.2em] text-blue-100">最近一轮巡查时间</p>
+          <p className="text-xs uppercase tracking-[0.2em] text-blue-100">历史数据更新时间</p>
           <p className="mt-2 font-semibold">{latestScanTime}</p>
         </div>
       </div>

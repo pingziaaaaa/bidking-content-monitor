@@ -19,6 +19,7 @@ type RecognizeResult = {
   followers: number | null;
   impressions: number | null;
   source: string;
+  followersSource?: string | null;
   status: 'success' | 'partial' | 'failed';
   warning: string | null;
 };
@@ -248,13 +249,17 @@ function appendWarning(warning: string | null, extra: string) {
   return warning ? `${warning}；${extra}` : extra;
 }
 
+function escapePostgresLikePattern(value: string) {
+  return value.replace(/([%_\\])/g, '\\$1');
+}
+
 function buildBatchFollowersCache(results: RecognizeResult[]) {
   const cache = new Map<string, number>();
 
   for (const result of results) {
     const username = getUsernameFromRecognizeResult(result);
 
-    if (username && typeof result.followers === 'number' && result.followers > 0) {
+    if (username && typeof result.followers === 'number' && Number.isFinite(result.followers)) {
       cache.set(username, result.followers);
     }
   }
@@ -278,26 +283,30 @@ async function fetchHistoricalFollowersFromSupabase(usernames: string[]) {
   const uniqueUsernames = Array.from(new Set(usernames.map((username) => username.toLowerCase())));
 
   for (const username of uniqueUsernames) {
-    const creatorCandidates = [`@${username}`, username];
+    const creatorCandidates = [
+      `@${username}`,
+      username,
+      `https://x.com/${username}`,
+      `https://twitter.com/${username}`,
+    ];
 
-    for (const creator of creatorCandidates) {
-      const response = await supabase
-        .from('content_items')
-        .select('followers, discovered_at, created_at')
-        .eq('platform', 'X')
-        .eq('creator', creator)
-        .not('followers', 'is', null)
-        .order('discovered_at', { ascending: false })
-        .limit(1);
+    const conditions = creatorCandidates
+      .map((creator) => `creator.ilike.${escapePostgresLikePattern(creator)}`)
+      .join(',');
 
-      if (!response.error && Array.isArray(response.data) && response.data[0]?.followers) {
-        const followers = Number(response.data[0].followers);
+    const response = await supabase
+      .from('content_items')
+      .select('followers, discovered_at, created_at, id')
+      .eq('platform', 'X')
+      .or(conditions)
+      .not('followers', 'is', null)
+      .order('discovered_at', { ascending: false })
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(1);
 
-        if (Number.isFinite(followers) && followers > 0) {
-          cache.set(username, followers);
-          break;
-        }
-      }
+    if (!response.error && Array.isArray(response.data) && response.data[0] && Number.isFinite(response.data[0].followers)) {
+      cache.set(username, Number(response.data[0].followers));
     }
   }
 
@@ -314,7 +323,7 @@ async function completeFollowersFromBatchAndSupabase(results: RecognizeResult[])
   const historicalCache = await fetchHistoricalFollowersFromSupabase(missingUsernames);
 
   return results.map((result) => {
-    if (typeof result.followers === 'number' && result.followers > 0) {
+    if (typeof result.followers === 'number' && Number.isFinite(result.followers)) {
       return result;
     }
 
@@ -334,11 +343,13 @@ async function completeFollowersFromBatchAndSupabase(results: RecognizeResult[])
     }
 
     const historicalFollowers = historicalCache.get(username);
-    if (historicalFollowers) {
+    if (historicalFollowers !== undefined) {
       return {
         ...result,
         followers: historicalFollowers,
-        warning: appendWarning(result.warning, 'Followers 已从 Supabase 历史数据复用。'),
+        followersSource: 'supabase_latest_history',
+        source: result.source ? `${result.source} / manual_x_screenshot_history_followers` : 'manual_x_screenshot_history_followers',
+        warning: appendWarning(result.warning, '已复用 Supabase 最新历史 Followers'),
       };
     }
 

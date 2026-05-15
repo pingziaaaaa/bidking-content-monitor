@@ -64,6 +64,10 @@ function normalizeUsernameValue(value: string | null | undefined): string | null
   return cleaned;
 }
 
+function escapePostgresLikePattern(value: string) {
+  return value.replace(/([%_\\])/g, '\\$1');
+}
+
 async function fetchHistoricalFollowers(
   supabase: any,
   username: string | null,
@@ -75,34 +79,36 @@ async function fetchHistoricalFollowers(
     return null;
   }
 
-  const creatorCandidates = [`@${normalizedUsername}`, normalizedUsername];
+  const creatorCandidates = [
+    `@${normalizedUsername}`,
+    normalizedUsername,
+    `https://x.com/${normalizedUsername}`,
+    `https://twitter.com/${normalizedUsername}`,
+  ];
 
-  for (const candidate of creatorCandidates) {
-    const response = await supabase
-      .from('content_items')
-      .select('followers, discovered_at, created_at')
-      .eq('platform', 'X')
-      .eq('creator', candidate)
-      .not('followers', 'is', null)
-      .order('discovered_at', { ascending: false })
-      .limit(1);
+  const conditions = creatorCandidates
+    .map((candidate) => `creator.ilike.${escapePostgresLikePattern(candidate)}`)
+    .join(',');
 
-    if (!response.error && Array.isArray(response.data) && response.data[0]?.followers) {
-      const followers = Number(response.data[0].followers);
+  const response = await supabase
+    .from('content_items')
+    .select('followers, discovered_at, created_at, id')
+    .eq('platform', 'X')
+    .or(conditions)
+    .not('followers', 'is', null)
+    .order('discovered_at', { ascending: false })
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(1);
 
-      if (Number.isFinite(followers) && followers > 0) {
-        return followers;
-      }
-    }
+  if (!response.error && Array.isArray(response.data) && response.data[0] && Number.isFinite(response.data[0].followers)) {
+    return Number(response.data[0].followers);
   }
 
   return null;
 }
 
-
 function toBeijingDisplayIso(year: number, month: number, day: number, hour: number, minute: number) {
-  // X 截图里显示的时间，按“北京时间展示值”存储。
-  // 例如截图是 12:29 AM · May 14, 2026，前端就显示 5月14日 00:29。
   const utcTime = Date.UTC(year, month - 1, day, hour - 8, minute, 0);
   return new Date(utcTime).toISOString();
 }
@@ -251,6 +257,7 @@ export async function POST(request: NextRequest) {
   let insertedCount = 0;
   let updatedCount = 0;
   let failedCount = 0;
+  let historyFallbackCount = 0;
   const failedItems: FailedItem[] = [];
   const now = new Date().toISOString();
 
@@ -264,7 +271,10 @@ export async function POST(request: NextRequest) {
     const source = url ? '截图识别' : '截图识别缺链接';
     const discoveredAt = parseDateString(item.published_at);
     const normalizedUsername = normalizeUsernameValue(item.username) || normalizeUsernameValue(linkInfo?.username ?? null) || normalizeUsernameValue(creator);
-    const followers = item.followers ?? await fetchHistoricalFollowers(supabase, normalizedUsername, creator);
+    const historicalFollowers = item.followers == null ? await fetchHistoricalFollowers(supabase, normalizedUsername, creator) : null;
+    const historyFallbackUsed = historicalFollowers != null;
+    const followers = item.followers ?? historicalFollowers;
+    const finalSource = historyFallbackUsed ? '截图识别 / manual_x_screenshot_history_followers' : source;
 
     if (platformContentId) {
       const existingResponse = await supabase
@@ -287,7 +297,7 @@ export async function POST(request: NextRequest) {
         title,
         url,
         creator,
-        source,
+        source: finalSource,
         discovered_at: discoveredAt,
         followers: followers ?? null,
         impressions: item.impressions ?? null,
@@ -301,6 +311,9 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
+        if (historyFallbackUsed) {
+          historyFallbackCount += 1;
+        }
         updatedCount += 1;
         continue;
       }
@@ -311,7 +324,7 @@ export async function POST(request: NextRequest) {
         title,
         url,
         creator,
-        source,
+        source: finalSource,
         discovered_at: discoveredAt,
         followers: followers ?? null,
         impressions: item.impressions ?? null,
@@ -328,6 +341,9 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
+      if (historyFallbackUsed) {
+        historyFallbackCount += 1;
+      }
       insertedCount += 1;
       continue;
     }
@@ -338,7 +354,7 @@ export async function POST(request: NextRequest) {
       title,
       url: '',
       creator,
-      source,
+      source: finalSource,
       discovered_at: discoveredAt,
       followers: followers ?? null,
       impressions: item.impressions ?? null,
@@ -355,8 +371,11 @@ export async function POST(request: NextRequest) {
       continue;
     }
 
+    if (historyFallbackUsed) {
+      historyFallbackCount += 1;
+    }
     insertedCount += 1;
   }
 
-  return NextResponse.json({ ok: true, insertedCount, updatedCount, failedCount, failedItems, message: '批量截图识别写入完成。'});
+  return NextResponse.json({ ok: true, insertedCount, updatedCount, failedCount, historyFallbackCount, failedItems, message: '批量截图识别写入完成。'});
 }

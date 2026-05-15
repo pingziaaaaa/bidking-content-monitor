@@ -274,7 +274,7 @@ export async function POST(request: NextRequest) {
     const historicalFollowers = item.followers == null ? await fetchHistoricalFollowers(supabase, normalizedUsername, creator) : null;
     const historyFallbackUsed = historicalFollowers != null;
     const followers = item.followers ?? historicalFollowers;
-    const finalSource = historyFallbackUsed ? '截图识别 / manual_x_screenshot_history_followers' : source;
+    const finalSource = source;
 
     if (platformContentId) {
       const existingResponse = await supabase

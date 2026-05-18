@@ -294,14 +294,30 @@ export default function Home() {
       ? contentItems
       : contentItems.filter((item) => item.platform === activeFilter);
 
+    const getDisplayDateKey = (dateString: string) => new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date(dateString));
+
     return [...filtered].sort((a, b) => {
+      // 第一优先级：日期升序，只看年月日，不看具体时间。旧日期在上，新日期在下。
+      const dateDiff = getDisplayDateKey(a.discoveredAt).localeCompare(getDisplayDateKey(b.discoveredAt));
+
+      if (dateDiff !== 0) {
+        return dateDiff;
+      }
+
+      // 第二优先级：同一天内按平台排序：Twitch → YouTube → X
       const platformDiff = getPlatformSortPriority(a.platform) - getPlatformSortPriority(b.platform);
 
       if (platformDiff !== 0) {
         return platformDiff;
       }
 
-      return getDiscoveredAtTime(b.discoveredAt) - getDiscoveredAtTime(a.discoveredAt);
+      // 第三优先级：同一天同平台内，按时间升序。09:00 在 14:00 前面。
+      return getDiscoveredAtTime(a.discoveredAt) - getDiscoveredAtTime(b.discoveredAt);
     });
   }, [activeFilter, contentItems]);
 

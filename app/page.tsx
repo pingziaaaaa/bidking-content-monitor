@@ -410,7 +410,7 @@ export default function Home() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ days: 3, maxChannels: 10, hours: 48 }),
+          body: JSON.stringify({ days: 3, maxChannels: 10, hours: 72 }),
         });
 
         const twitchResult = await twitchResponse.json();

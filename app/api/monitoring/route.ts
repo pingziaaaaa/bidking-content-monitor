@@ -250,12 +250,12 @@ export async function GET() {
 
   try {
     const db = asMonitoringSupabaseClient(supabase);
-    const since48Hours = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const since72Hours = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
 
     const contentsQuery = db
       .from('content_items')
       .select('id, platform, platform_content_id, title, url, creator, source, discovered_at, followers, views, impressions, engagements, peak_viewers, vod_views, created_at')
-      .gte('discovered_at', since48Hours)
+      .gte('discovered_at', since72Hours)
       .order('discovered_at', { ascending: false });
     const keywordsQuery = db.from('monitor_keywords').select('id, keyword, created_at').order('created_at', { ascending: true });
     const accountsQuery = db.from('monitored_accounts').select('id, platform, name, url, status, note, created_at').order('created_at', { ascending: false });

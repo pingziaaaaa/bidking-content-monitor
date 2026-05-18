@@ -604,7 +604,7 @@ async function upsertTwitchContent(item: {
 async function parseRequest(request: Request) {
   let days = 3;
   let maxChannels = 20;
-  let hours = 48;
+  let hours = 72;
   let dryRun = false;
 
   try {
@@ -800,6 +800,6 @@ export async function POST(request: Request) {
 export async function GET() {
   return NextResponse.json({
     ok: true,
-    message: 'Use POST /api/scan/twitch with optional body {"days":3,"maxChannels":20,"hours":48,"dryRun":true}',
+    message: 'Use POST /api/scan/twitch with optional body {"days":3,"maxChannels":20,"hours":72,"dryRun":true}',
   });
 }

@@ -1,7 +1,7 @@
 import type { FormEvent, ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 import type { AccountItem, ContentItem, Platform } from '@/lib/mock-data';
-import { formatOptionalNumber, platformStyles } from '@/components/utils';
+import { formatNumber, formatOptionalNumber, platformStyles } from '@/components/utils';
 
 type NewAccountInput = {
   platform: Platform;
@@ -18,6 +18,118 @@ type ConfigSidebarProps = {
   onDeleteKeyword: (keyword: string) => void;
   onDeleteAccount: (accountId: string) => void;
 };
+
+function parseShanghaiDate(value: string) {
+  const match = value.trim().match(/^\s*(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?(.*)$/);
+
+  if (!match) {
+    return new Date(value);
+  }
+
+  const [, year, month, day, hour = '00', minute = '00', second = '00', rest] = match;
+  const timeZoneSuffix = rest.trim() ? rest.trim() : '+08:00';
+
+  return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}${timeZoneSuffix}`);
+}
+
+function formatShanghaiDateLabel(date: Date) {
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    timeZone: 'Asia/Shanghai',
+  }).formatToParts(date);
+
+  const month = parts.find((part) => part.type === 'month')?.value ?? '';
+  const day = parts.find((part) => part.type === 'day')?.value ?? '';
+
+  return month && day ? `${month}月${day}日` : new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    timeZone: 'Asia/Shanghai',
+  }).format(date);
+}
+
+function getShanghaiDateKey(value: string) {
+  const date = parseShanghaiDate(value);
+
+  return date.toLocaleDateString('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'Asia/Shanghai',
+  });
+}
+
+function sumMetric(contents: ContentItem[], platform: Platform, metric: keyof ContentItem['metrics']) {
+  return contents
+    .filter((item) => item.platform === platform)
+    .reduce((total, item) => total + (item.metrics[metric] ?? 0), 0);
+}
+
+function maxMetric(contents: ContentItem[], platform: Platform, metric: keyof ContentItem['metrics']) {
+  return contents
+    .filter((item) => item.platform === platform)
+    .reduce((max, item) => Math.max(max, item.metrics[metric] ?? 0), 0);
+}
+
+function aggregateMetric(
+  contents: ContentItem[],
+  platform: Platform,
+  metric: keyof ContentItem['metrics'],
+  aggregate: 'sum' | 'max',
+) {
+  const values = contents
+    .filter((item) => item.platform === platform)
+    .map((item) => item.metrics[metric])
+    .filter((value): value is number => typeof value === 'number');
+
+  if (values.length === 0) {
+    return undefined;
+  }
+
+  return aggregate === 'max' ? Math.max(...values) : values.reduce((total, value) => total + value, 0);
+}
+
+function getDailyMetricRows(
+  contents: ContentItem[],
+  platform: Platform,
+  metric: keyof ContentItem['metrics'],
+  aggregate: 'sum' | 'max',
+) {
+  const bucket: Record<string, { label: string; value: number }> = {};
+
+  contents.forEach((item) => {
+    if (item.platform !== platform) {
+      return;
+    }
+
+    const metricValue = item.metrics[metric];
+    if (typeof metricValue !== 'number') {
+      return;
+    }
+
+    const dateKey = getShanghaiDateKey(item.discoveredAt);
+    const current = bucket[dateKey];
+
+    bucket[dateKey] = {
+      label: formatShanghaiDateLabel(parseShanghaiDate(item.discoveredAt)),
+      value:
+        current && aggregate === 'max'
+          ? Math.max(current.value, metricValue)
+          : aggregate === 'max'
+          ? metricValue
+          : (current?.value ?? 0) + metricValue,
+    };
+  });
+
+  return Object.entries(bucket)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, row]) => ({
+      key,
+      date: row.label,
+      value: formatNumber(row.value),
+    }));
+}
 
 function Card({ children, title }: { children: ReactNode; title: string }) {
   return (
@@ -60,46 +172,49 @@ function AccountRow({ account, onDelete }: { account: AccountItem; onDelete: (id
   );
 }
 
-function sumMetric(contents: ContentItem[], platform: Platform, metric: keyof ContentItem['metrics']) {
-  return contents
-    .filter((item) => item.platform === platform)
-    .reduce((total, item) => total + (item.metrics[metric] ?? 0), 0);
-}
-
-function maxMetric(contents: ContentItem[], platform: Platform, metric: keyof ContentItem['metrics']) {
-  return contents
-    .filter((item) => item.platform === platform)
-    .reduce((max, item) => Math.max(max, item.metrics[metric] ?? 0), 0);
-}
-
 export function ConfigSidebar({ keywords, accounts, contents, onAddKeyword, onAddAccount, onDeleteKeyword, onDeleteAccount }: ConfigSidebarProps) {
   const [keywordInput, setKeywordInput] = useState('');
   const [accountPlatform, setAccountPlatform] = useState<Platform>('YouTube');
   const [accountUrl, setAccountUrl] = useState('');
   const [accountNote, setAccountNote] = useState('');
 
-  const todayMetrics = useMemo(() => [
-    {
-      label: 'YouTube播放量',
-      value: formatOptionalNumber(sumMetric(contents, 'YouTube', 'views')),
-      note: '来自当前内容表',
-    },
-    {
-      label: 'X曝光量',
-      value: formatOptionalNumber(sumMetric(contents, 'X', 'impressions')),
-      note: '来自当前内容表',
-    },
-    {
-      label: 'Twitch在线峰值',
-      value: formatOptionalNumber(maxMetric(contents, 'Twitch', 'peakViewers')),
-      note: '取单场最高峰值',
-    },
-    {
-      label: 'Twitch回看播放',
-      value: formatOptionalNumber(sumMetric(contents, 'Twitch', 'vodViews')),
-      note: '来自 VOD Views 汇总',
-    },
-  ], [contents]);
+  const todayMetrics = useMemo(
+    () => [
+      {
+        label: 'YouTube播放量',
+        badge: '72小时',
+        totalTitle: '总播放量',
+        dailyTitle: '每日播放量',
+        totalValue: formatOptionalNumber(aggregateMetric(contents, 'YouTube', 'views', 'sum')),
+        dailyRows: getDailyMetricRows(contents, 'YouTube', 'views', 'sum'),
+      },
+      {
+        label: 'X曝光量',
+        badge: '72小时',
+        totalTitle: '总曝光量',
+        dailyTitle: '每日曝光量',
+        totalValue: formatOptionalNumber(aggregateMetric(contents, 'X', 'impressions', 'sum')),
+        dailyRows: getDailyMetricRows(contents, 'X', 'impressions', 'sum'),
+      },
+      {
+        label: 'Twitch在线峰值',
+        badge: '72小时',
+        totalTitle: '最高在线峰值',
+        dailyTitle: '每日在线峰值',
+        totalValue: formatOptionalNumber(aggregateMetric(contents, 'Twitch', 'peakViewers', 'max')),
+        dailyRows: getDailyMetricRows(contents, 'Twitch', 'peakViewers', 'max'),
+      },
+      {
+        label: 'Twitch回看播放',
+        badge: '72小时',
+        totalTitle: '总回看播放',
+        dailyTitle: '每日回看播放',
+        totalValue: formatOptionalNumber(aggregateMetric(contents, 'Twitch', 'vodViews', 'sum')),
+        dailyRows: getDailyMetricRows(contents, 'Twitch', 'vodViews', 'sum'),
+      },
+    ],
+    [contents],
+  );
 
   function handleKeywordSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -184,16 +299,33 @@ export function ConfigSidebar({ keywords, accounts, contents, onAddKeyword, onAd
         </div>
       </Card>
 
-      <Card title="今日重点指标">
+      <Card title="重点指标">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
           {todayMetrics.map((metric) => (
             <div key={metric.label} className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100">
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex items-start justify-between gap-3">
                 <p className="text-sm text-slate-500">{metric.label}</p>
-                <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">实时</span>
+                <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">{metric.badge}</span>
               </div>
-              <p className="mt-2 text-2xl font-bold text-slate-950">{metric.value}</p>
-              <p className="mt-1 text-xs text-slate-400">{metric.note}</p>
+              <div className="mt-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{metric.totalTitle}</p>
+                <p className="mt-2 text-2xl font-bold text-slate-950">{metric.totalValue}</p>
+              </div>
+              <div className="mt-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{metric.dailyTitle}</p>
+                {metric.dailyRows.length > 0 ? (
+                  <div className="mt-2 space-y-2 text-sm text-slate-700">
+                    {metric.dailyRows.map((row) => (
+                      <div key={row.key} className="flex items-center justify-between rounded-2xl bg-white px-3 py-2 ring-1 ring-slate-100">
+                        <span>{row.date}</span>
+                        <span className="font-semibold">{row.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-slate-500">暂无数据</p>
+                )}
+              </div>
             </div>
           ))}
         </div>

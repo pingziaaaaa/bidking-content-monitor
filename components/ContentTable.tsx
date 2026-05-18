@@ -146,9 +146,9 @@ export function ContentTable({
       <div className="sticky top-[72px] z-40 overflow-hidden rounded-t-3xl border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h2 className="text-lg font-bold text-slate-950">最近48小时内容</h2>
+            <h2 className="text-lg font-bold text-slate-950">最近72小时内容</h2>
             <p className="mt-1 text-sm text-slate-500">
-              仅展示当前时间往前 48 小时内的内容，按平台优先级展示，平台内按发布时间倒序排列。
+              仅展示当前时间往前 72 小时内的内容，按平台优先级展示，平台内按发布时间倒序排列。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
